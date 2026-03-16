@@ -197,18 +197,25 @@ class TradeLog:
         today = date.today().isoformat()
         conn = self._get_conn()
         try:
-            conn.execute(
-                """INSERT INTO daily_snapshots
-                   (date, equity, cash, portfolio_value, open_positions, daily_pnl)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(date) DO UPDATE SET
-                     equity = excluded.equity,
-                     cash = excluded.cash,
-                     portfolio_value = excluded.portfolio_value,
-                     open_positions = excluded.open_positions,
-                     daily_pnl = excluded.daily_pnl""",
-                (today, equity, cash, portfolio_value, open_positions, daily_pnl),
-            )
+            # Use INSERT-or-replace pattern for SQLite compatibility
+            existing = conn.execute(
+                "SELECT id FROM daily_snapshots WHERE date = ?", (today,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE daily_snapshots
+                       SET equity = ?, cash = ?, portfolio_value = ?,
+                           open_positions = ?, daily_pnl = ?
+                       WHERE date = ?""",
+                    (equity, cash, portfolio_value, open_positions, daily_pnl, today),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO daily_snapshots
+                       (date, equity, cash, portfolio_value, open_positions, daily_pnl)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (today, equity, cash, portfolio_value, open_positions, daily_pnl),
+                )
             conn.commit()
         finally:
             conn.close()
