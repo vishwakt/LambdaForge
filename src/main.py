@@ -291,6 +291,34 @@ def cmd_stop_monitor(args):
     engine.monitor_stops()
 
 
+def cmd_dashboard(args):
+    """Show full portfolio dashboard."""
+    from src.config import load_config
+    from src.reporter import print_dashboard
+
+    config = load_config()
+    print_dashboard(config)
+
+
+def cmd_pnl(args):
+    """Show P&L report from daily snapshots."""
+    from src.config import load_config
+    from src.reporter import print_pnl_report
+
+    config = load_config()
+    print_pnl_report(days=args.days, config=config)
+
+
+def cmd_performance(args):
+    """Show per-strategy performance breakdown."""
+    from src.config import load_config
+    from src.reporter import print_performance
+
+    config = load_config()
+    days = getattr(args, "days", None)
+    print_performance(days=days, config=config)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stock Trading CLI — Paper Trading via Alpaca"
@@ -382,6 +410,25 @@ def main():
     # stop-monitor
     subparsers.add_parser("stop-monitor", help="Check stop-losses once")
 
+    # dashboard (M4)
+    subparsers.add_parser("dashboard", help="Full portfolio dashboard")
+
+    # pnl (M4)
+    pnl_parser = subparsers.add_parser("pnl", help="P&L report from daily snapshots")
+    pnl_parser.add_argument(
+        "--days", "-d", type=int, default=30,
+        help="Number of days to include (default: 30)",
+    )
+
+    # performance (M4)
+    perf_parser = subparsers.add_parser(
+        "performance", help="Strategy performance breakdown"
+    )
+    perf_parser.add_argument(
+        "--days", "-d", type=int, default=None,
+        help="Limit to last N days (default: all time)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -404,6 +451,9 @@ def main():
         "trades": cmd_trades,
         "risk-check": cmd_risk_check,
         "stop-monitor": cmd_stop_monitor,
+        "dashboard": cmd_dashboard,
+        "pnl": cmd_pnl,
+        "performance": cmd_performance,
     }
 
     try:
