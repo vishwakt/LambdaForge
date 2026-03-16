@@ -1,0 +1,12 @@
+.venv/
+.git/
+.github/
+__pycache__/
+*.pyc
+.env
+.env.example
+trades.db
+*.md
+samconfig.toml
+.aws-sam/
+iam-*.json

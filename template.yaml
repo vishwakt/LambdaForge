@@ -23,6 +23,8 @@ Globals:
   Function:
     Timeout: 300
     MemorySize: 512
+    Architectures:
+      - arm64
     Environment:
       Variables:
         TRADING_MODE: !Ref TradingMode
@@ -63,7 +65,11 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub "arn:aws:s3:::${TradesDbBucket}/*"
+                  - s3:HeadObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${TradesDbBucket}"
+                  - !Sub "arn:aws:s3:::${TradesDbBucket}/*"
 
   # Lambda Function: Daily Scan (runs at 09:45 ET weekdays)
   DailyScanFunction:
@@ -72,7 +78,7 @@ Resources:
       PackageType: Image
       ImageConfig:
         Command:
-          - src.lambda_handlers.daily_scan_handler
+          - handler.daily_scan_handler
       Role: !GetAtt TradingBotRole.Arn
       Events:
         DailySchedule:
@@ -92,7 +98,7 @@ Resources:
       PackageType: Image
       ImageConfig:
         Command:
-          - src.lambda_handlers.monitor_stops_handler
+          - handler.monitor_stops_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
       Events:
@@ -113,7 +119,7 @@ Resources:
       PackageType: Image
       ImageConfig:
         Command:
-          - src.lambda_handlers.eod_snapshot_handler
+          - handler.eod_snapshot_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
       Events:

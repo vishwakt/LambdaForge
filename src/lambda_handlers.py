@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
+
 import boto3
+from botocore.exceptions import ClientError
 
 from src.config import load_config
 from src.scheduler import TradingEngine
@@ -27,10 +29,13 @@ def _sync_db_from_s3():
         return
     s3 = boto3.client("s3")
     try:
+        # Check if the file exists before downloading
+        s3.head_object(Bucket=S3_BUCKET, Key=S3_KEY)
         s3.download_file(S3_BUCKET, S3_KEY, LOCAL_DB_PATH)
         logger.info("Downloaded trades.db from s3://%s/%s", S3_BUCKET, S3_KEY)
-    except s3.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey", "403"):
             logger.info("No existing trades.db in S3, starting fresh.")
         else:
             raise
