@@ -1,0 +1,20 @@
+{
+  "trading_mode": "paper",
+  "notifier": "console",
+  "risk": {
+    "max_position_pct": 0.05,
+    "daily_loss_limit_pct": 0.02,
+    "max_open_positions": 5,
+    "min_confidence": 0.5
+  },
+  "scheduler": {
+    "run_time": "09:45",
+    "monitor_interval_min": 15,
+    "symbols": [
+      "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
+      "META", "NVDA", "SPY", "QQQ", "AMD"
+    ],
+    "strategies": ["macd", "bollinger", "zscore"],
+    "days_of_data": 200
+  }
+}

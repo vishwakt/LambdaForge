@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Stock Trading Bot — Automated daily trading via Alpaca API
+
+Parameters:
+  TradingMode:
+    Type: String
+    Default: paper
+    AllowedValues:
+      - paper
+      - live
+    Description: Trading mode (paper or live)
+  AlpacaApiKey:
+    Type: String
+    NoEcho: true
+    Description: Alpaca API key for the selected trading mode
+  AlpacaSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Alpaca secret key for the selected trading mode
+
+Globals:
+  Function:
+    Timeout: 300
+    MemorySize: 512
+    Environment:
+      Variables:
+        TRADING_MODE: !Ref TradingMode
+        ALPACA_API_KEY: !Ref AlpacaApiKey
+        ALPACA_SECRET_KEY: !Ref AlpacaSecretKey
+        TRADES_DB_BUCKET: !Ref TradesDbBucket
+        TRADES_DB_KEY: trades.db
+        DB_PATH: /tmp/trades.db
+
+Resources:
+  # S3 bucket for persistent trades.db storage
+  TradesDbBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "stock-trader-db-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+
+  # IAM role for Lambda functions
+  TradingBotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3TradesDbAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${TradesDbBucket}/*"
+
+  # Lambda Function: Daily Scan (runs at 09:45 ET weekdays)
+  DailyScanFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - src.lambda_handlers.daily_scan_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(45 14 ? * MON-FRI *)  # 09:45 ET = 14:45 UTC
+            Description: Daily market scan at 09:45 ET
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  # Lambda Function: Stop-Loss Monitor (every 15 min during market hours)
+  MonitorStopsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - src.lambda_handlers.monitor_stops_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 120
+      Events:
+        MonitorSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Description: Stop-loss check every 15 minutes
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  # Lambda Function: End-of-Day Snapshot (runs at 15:55 ET weekdays)
+  EodSnapshotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - src.lambda_handlers.eod_snapshot_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 120
+      Events:
+        EodSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(55 20 ? * MON-FRI *)  # 15:55 ET = 20:55 UTC
+            Description: End-of-day snapshot at 15:55 ET
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+Outputs:
+  DailyScanFunctionArn:
+    Description: Daily Scan Lambda ARN
+    Value: !GetAtt DailyScanFunction.Arn
+  MonitorStopsFunctionArn:
+    Description: Stop Monitor Lambda ARN
+    Value: !GetAtt MonitorStopsFunction.Arn
+  TradesDbBucketName:
+    Description: S3 bucket for trades database
+    Value: !Ref TradesDbBucket
