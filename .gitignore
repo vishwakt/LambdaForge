@@ -1,0 +1,28 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Database
+*.db
+*.sqlite
+
+# AWS SAM
+.aws-sam/
+packaged.yaml
+samconfig.toml
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
