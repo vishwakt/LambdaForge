@@ -288,3 +288,168 @@ class TradeLog:
             return [dict(r) for r in rows]
         finally:
             conn.close()
+
+    # --- Reporting queries (M4) ---
+
+    def get_snapshots(
+        self,
+        since: str | None = None,
+        limit: int = 365,
+    ) -> list[dict]:
+        """Get daily snapshots for P&L charting / trend analysis.
+
+        Args:
+            since: ISO date string (e.g. '2026-01-01'). If None, all snapshots.
+            limit: Max rows to return.
+
+        Returns:
+            List of snapshot dicts, oldest first.
+        """
+        conn = self._get_conn()
+        try:
+            query = "SELECT * FROM daily_snapshots WHERE 1=1"
+            params: list = []
+
+            if since:
+                query += " AND date >= ?"
+                params.append(since)
+
+            query += " ORDER BY date ASC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_trade_stats(self, since: str | None = None) -> dict:
+        """Aggregate trade statistics for reporting.
+
+        Returns dict with: total_trades, buys, sells, wins, losses,
+        total_pnl, avg_pnl, best_trade, worst_trade, win_rate.
+        """
+        conn = self._get_conn()
+        try:
+            where = " WHERE 1=1"
+            params: list = []
+            if since:
+                where += " AND timestamp >= ?"
+                params.append(since)
+
+            # Total trades by side
+            row = conn.execute(
+                f"SELECT COUNT(*) as total FROM trades{where}", params
+            ).fetchone()
+            total = row["total"]
+
+            buys = conn.execute(
+                f"SELECT COUNT(*) as c FROM trades{where} AND side = 'buy'",
+                params,
+            ).fetchone()["c"]
+
+            sells = conn.execute(
+                f"SELECT COUNT(*) as c FROM trades{where} AND side = 'sell'",
+                params,
+            ).fetchone()["c"]
+
+            # P&L stats (only sell trades have pnl)
+            pnl_where = where + " AND side = 'sell' AND pnl IS NOT NULL"
+            pnl_rows = conn.execute(
+                f"SELECT pnl FROM trades{pnl_where}", params
+            ).fetchall()
+            pnl_values = [r["pnl"] for r in pnl_rows]
+
+            wins = sum(1 for p in pnl_values if p > 0)
+            losses = sum(1 for p in pnl_values if p <= 0)
+            total_pnl = sum(pnl_values) if pnl_values else 0.0
+            avg_pnl = total_pnl / len(pnl_values) if pnl_values else 0.0
+            best = max(pnl_values) if pnl_values else 0.0
+            worst = min(pnl_values) if pnl_values else 0.0
+            win_rate = wins / len(pnl_values) if pnl_values else 0.0
+
+            return {
+                "total_trades": total,
+                "buys": buys,
+                "sells": sells,
+                "closed_trades": len(pnl_values),
+                "wins": wins,
+                "losses": losses,
+                "total_pnl": round(total_pnl, 2),
+                "avg_pnl": round(avg_pnl, 2),
+                "best_trade": round(best, 2),
+                "worst_trade": round(worst, 2),
+                "win_rate": round(win_rate, 4),
+            }
+        finally:
+            conn.close()
+
+    def get_strategy_stats(self, since: str | None = None) -> list[dict]:
+        """Per-strategy performance breakdown.
+
+        Returns list of dicts: strategy, trades, wins, losses, total_pnl,
+        avg_pnl, win_rate.
+        """
+        conn = self._get_conn()
+        try:
+            where = " WHERE side = 'sell' AND pnl IS NOT NULL"
+            params: list = []
+            if since:
+                where += " AND timestamp >= ?"
+                params.append(since)
+
+            strategies = conn.execute(
+                f"SELECT DISTINCT strategy FROM trades{where}", params
+            ).fetchall()
+
+            results = []
+            for row in strategies:
+                strat = row["strategy"]
+                strat_where = where + " AND strategy = ?"
+                strat_params = params + [strat]
+
+                pnl_rows = conn.execute(
+                    f"SELECT pnl FROM trades{strat_where}", strat_params
+                ).fetchall()
+                pnl_values = [r["pnl"] for r in pnl_rows]
+
+                trade_count = conn.execute(
+                    f"SELECT COUNT(*) as c FROM trades WHERE strategy = ?"
+                    + (" AND timestamp >= ?" if since else ""),
+                    [strat] + (params if since else []),
+                ).fetchone()["c"]
+
+                wins = sum(1 for p in pnl_values if p > 0)
+                losses = sum(1 for p in pnl_values if p <= 0)
+                total_pnl = sum(pnl_values)
+                avg_pnl = total_pnl / len(pnl_values) if pnl_values else 0.0
+
+                results.append({
+                    "strategy": strat,
+                    "total_trades": trade_count,
+                    "closed_trades": len(pnl_values),
+                    "wins": wins,
+                    "losses": losses,
+                    "total_pnl": round(total_pnl, 2),
+                    "avg_pnl": round(avg_pnl, 2),
+                    "win_rate": round(
+                        wins / len(pnl_values) if pnl_values else 0.0, 4
+                    ),
+                })
+
+            results.sort(key=lambda x: x["total_pnl"], reverse=True)
+            return results
+        finally:
+            conn.close()
+
+    def get_recent_rejections(self, limit: int = 20) -> list[dict]:
+        """Get recent risk rejections across all dates."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM risk_rejections
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
