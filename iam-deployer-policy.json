@@ -10,6 +10,7 @@
         "cloudformation:DescribeChangeSet",
         "cloudformation:DeleteChangeSet",
         "cloudformation:CreateStack",
+        "cloudformation:DeleteStack",
         "cloudformation:UpdateStack",
         "cloudformation:DescribeStacks",
         "cloudformation:DescribeStackEvents",
@@ -17,11 +18,12 @@
         "cloudformation:GetTemplate",
         "cloudformation:GetTemplateSummary",
         "cloudformation:ListStackResources",
-        "cloudformation:ValidateTemplate"
+        "cloudformation:ValidateTemplate",
+        "cloudformation:TagResource"
       ],
       "Resource": [
-        "arn:aws:cloudformation:us-east-1:ACCOUNT_ID:stack/stock-trading-bot/*",
-        "arn:aws:cloudformation:us-east-1:ACCOUNT_ID:stack/aws-sam-cli-managed-default/*",
+        "arn:aws:cloudformation:us-east-1:042697403670:stack/stock-trading-bot*",
+        "arn:aws:cloudformation:us-east-1:042697403670:stack/aws-sam-cli-managed-default/*",
         "arn:aws:cloudformation:us-east-1:aws:transform/Serverless-2016-10-31"
       ]
     },
@@ -30,6 +32,7 @@
       "Effect": "Allow",
       "Action": [
         "s3:CreateBucket",
+        "s3:DeleteBucket",
         "s3:PutObject",
         "s3:GetObject",
         "s3:DeleteObject",
@@ -41,7 +44,10 @@
         "s3:GetBucketPolicy",
         "s3:PutEncryptionConfiguration",
         "s3:GetEncryptionConfiguration",
-        "s3:PutBucketPublicAccessBlock"
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:GetBucketTagging",
+        "s3:TagResource"
       ],
       "Resource": [
         "arn:aws:s3:::aws-sam-cli-managed-default-*",
@@ -54,17 +60,23 @@
       "Action": [
         "s3:CreateBucket",
         "s3:DeleteBucket",
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
         "s3:PutBucketVersioning",
         "s3:PutBucketPolicy",
         "s3:DeleteBucketPolicy",
         "s3:PutBucketTagging",
+        "s3:GetBucketTagging",
         "s3:PutEncryptionConfiguration",
         "s3:PutBucketPublicAccessBlock",
-        "s3:PutLifecycleConfiguration"
+        "s3:PutLifecycleConfiguration",
+        "s3:TagResource"
       ],
       "Resource": [
-        "arn:aws:s3:::stock-trader-db-ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-ACCOUNT_ID/*"
+        "arn:aws:s3:::stock-trader-db-042697403670",
+        "arn:aws:s3:::stock-trader-db-042697403670/*"
       ]
     },
     {
@@ -92,9 +104,11 @@
         "ecr:ListImages",
         "ecr:DescribeImages",
         "ecr:ListTagsForResource",
-        "ecr:TagResource"
+        "ecr:TagResource",
+        "ecr:PutLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy"
       ],
-      "Resource": "arn:aws:ecr:us-east-1:ACCOUNT_ID:repository/stock-trading-bot*"
+      "Resource": "arn:aws:ecr:us-east-1:042697403670:repository/stocktradingbot*"
     },
     {
       "Sid": "LambdaFunctions",
@@ -107,13 +121,15 @@
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration",
         "lambda:ListVersionsByFunction",
+        "lambda:PublishVersion",
         "lambda:AddPermission",
         "lambda:RemovePermission",
         "lambda:TagResource",
         "lambda:UntagResource",
-        "lambda:ListTags"
+        "lambda:ListTags",
+        "lambda:InvokeFunction"
       ],
-      "Resource": "arn:aws:lambda:us-east-1:ACCOUNT_ID:function:stock-trading-bot-*"
+      "Resource": "arn:aws:lambda:us-east-1:042697403670:function:stock-trading-bot-*"
     },
     {
       "Sid": "IAMRoleManagement",
@@ -133,13 +149,13 @@
         "iam:ListRolePolicies",
         "iam:ListAttachedRolePolicies"
       ],
-      "Resource": "arn:aws:iam::ACCOUNT_ID:role/stock-trading-bot-*"
+      "Resource": "arn:aws:iam::042697403670:role/stock-trading-bot-*"
     },
     {
       "Sid": "IAMPassRoleToLambda",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::ACCOUNT_ID:role/stock-trading-bot-*",
+      "Resource": "arn:aws:iam::042697403670:role/stock-trading-bot-*",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "lambda.amazonaws.com"
@@ -157,9 +173,10 @@
         "events:DisableRule",
         "events:PutTargets",
         "events:RemoveTargets",
-        "events:ListTargetsByRule"
+        "events:ListTargetsByRule",
+        "events:TagResource"
       ],
-      "Resource": "arn:aws:events:us-east-1:ACCOUNT_ID:rule/stock-trading-bot-*"
+      "Resource": "arn:aws:events:us-east-1:042697403670:rule/stock-trading-bot-*"
     }
   ]
 }
