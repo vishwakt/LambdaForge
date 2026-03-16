@@ -18,6 +18,13 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Alpaca secret key for the selected trading mode
+  NotificationPhone:
+    Type: String
+    Default: ""
+    Description: Phone number for SMS alerts in E.164 format (e.g., +15551234567). Leave empty to skip SMS.
+
+Conditions:
+  HasNotificationPhone: !Not [!Equals [!Ref NotificationPhone, ""]]
 
 Globals:
   Function:
@@ -33,6 +40,8 @@ Globals:
         TRADES_DB_BUCKET: !Ref TradesDbBucket
         TRADES_DB_KEY: trades.db
         DB_PATH: /tmp/trades.db
+        SNS_TOPIC_ARN: !Ref TradingAlertsTopic
+        NOTIFIER_TYPE: console+sns
 
 Resources:
   # S3 bucket for persistent trades.db storage
@@ -42,6 +51,21 @@ Resources:
       BucketName: !Sub "stock-trader-db-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
+
+  # SNS topic for trade alerts
+  TradingAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Stock Trading Bot Alerts
+
+  # SMS subscription (only created if phone number provided)
+  TradingAlertsSmsSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationPhone
+    Properties:
+      TopicArn: !Ref TradingAlertsTopic
+      Protocol: sms
+      Endpoint: !Ref NotificationPhone
 
   # IAM role for Lambda functions
   TradingBotRole:
@@ -70,6 +94,15 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::${TradesDbBucket}"
                   - !Sub "arn:aws:s3:::${TradesDbBucket}/*"
+        - PolicyName: SNSPublishAlerts
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref TradingAlertsTopic
 
   # Lambda Function: Daily Scan (runs at 09:45 ET weekdays)
   DailyScanFunction:
@@ -143,3 +176,6 @@ Outputs:
   TradesDbBucketName:
     Description: S3 bucket for trades database
     Value: !Ref TradesDbBucket
+  TradingAlertsTopicArn:
+    Description: SNS topic ARN for trade alerts
+    Value: !Ref TradingAlertsTopic
