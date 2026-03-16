@@ -38,7 +38,7 @@ class AppConfig:
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     db_path: str = str(PROJECT_ROOT / "trades.db")
     trading_mode: str = "paper"           # "paper" or "live"
-    notifier: str = "console"             # "console" (future: "telegram", "twilio")
+    notifier: str = "console"             # "console", "sns", "console+sns"
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -83,6 +83,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     env_db = os.getenv("DB_PATH")
     if env_db:
         config.db_path = env_db
+
+    env_notifier = os.getenv("NOTIFIER_TYPE")
+    if env_notifier:
+        config.notifier = env_notifier
 
     if config.trading_mode not in ("paper", "live"):
         raise ValueError(
