@@ -18,13 +18,13 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Alpaca secret key for the selected trading mode
-  NotificationPhone:
+  NotificationEmail:
     Type: String
     Default: ""
-    Description: Phone number for SMS alerts in E.164 format (e.g., +15551234567). Leave empty to skip SMS.
+    Description: Email address for trade alerts. Leave empty to skip email notifications.
 
 Conditions:
-  HasNotificationPhone: !Not [!Equals [!Ref NotificationPhone, ""]]
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
 
 Globals:
   Function:
@@ -58,14 +58,14 @@ Resources:
     Properties:
       DisplayName: Stock Trading Bot Alerts
 
-  # SMS subscription (only created if phone number provided)
-  TradingAlertsSmsSubscription:
+  # Email subscription (only created if email address provided)
+  TradingAlertsEmailSubscription:
     Type: AWS::SNS::Subscription
-    Condition: HasNotificationPhone
+    Condition: HasNotificationEmail
     Properties:
       TopicArn: !Ref TradingAlertsTopic
-      Protocol: sms
-      Endpoint: !Ref NotificationPhone
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
 
   # IAM role for Lambda functions
   TradingBotRole:

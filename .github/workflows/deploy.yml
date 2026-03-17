@@ -74,4 +74,4 @@ jobs:
               TradingMode=${{ secrets.TRADING_MODE }} \
               AlpacaApiKey=${{ secrets.ALPACA_API_KEY }} \
               AlpacaSecretKey=${{ secrets.ALPACA_SECRET_KEY }} \
-              NotificationPhone=${{ secrets.NOTIFICATION_PHONE }}
+              NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }}
