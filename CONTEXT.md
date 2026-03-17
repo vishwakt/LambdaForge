@@ -2,7 +2,7 @@
 
 > **Purpose:** Compressed context document for AI assistants and future developers.
 > Covers architecture, file map, AWS deployment, IAM, CI/CD, and known gotchas.
-> Last updated: 2026-03-16 (end of Milestone 4).
+> Last updated: 2026-03-16 (end of Milestone 5).
 
 ---
 
@@ -26,7 +26,7 @@ Runs on AWS Lambda (EventBridge-scheduled), deploys via SAM + GitHub Actions.
 | M3 — Automation & Risk | ✅ | Daily scheduler, 6-rule risk manager, SQLite trade logging, stop-loss monitoring |
 | Pre-M4 — Deploy | ✅ | AWS Lambda (ARM64), SAM template, S3 db persistence, GitHub Actions CI/CD |
 | M4 — Reporting | ✅ | CLI dashboard, P&L reports, strategy performance analytics |
-| M5 — Notifications | 🔲 | Telegram/WhatsApp/SMS via notifier.py interface (scaffolded) |
+| M5 — Notifications | ✅ | AWS SNS SMS alerts, MultiNotifier for console+sns combo, configurable via env var |
 
 ---
 
@@ -43,7 +43,7 @@ stock-trading-v1/
 │   ├── scheduler.py         # TradingEngine: scan → risk → execute → log cycle
 │   ├── risk.py              # RiskManager: 6 pre-trade checks
 │   ├── trade_log.py         # SQLite: trades, daily_snapshots, risk_rejections
-│   ├── notifier.py          # ABC Notifier + ConsoleNotifier (M5: Telegram/SMS)
+│   ├── notifier.py          # ABC Notifier + ConsoleNotifier + SNSNotifier + MultiNotifier
 │   ├── reporter.py          # M4: Portfolio analytics, P&L, strategy performance
 │   ├── lambda_handlers.py   # Lambda entry points (S3 sync trades.db)
 │   └── strategies/
@@ -144,6 +144,12 @@ Key config values:
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (or mode-specific `_PAPER`/`_LIVE` suffixes).
 
+Notification config:
+- `NOTIFIER_TYPE` env var: `"console"` (default local), `"sns"`, or `"console+sns"` (Lambda default)
+- `SNS_TOPIC_ARN` env var: set automatically by SAM template in Lambda
+- SNS subscription: email protocol (no origination identity needed; SMS requires a toll-free number)
+- MultiNotifier wraps multiple notifiers when `+` separator is used
+
 ---
 
 ## 6. AWS Resources (Deployed)
@@ -159,6 +165,7 @@ Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (or mode-specific `_P
 | ECR: DailyScan | `stocktradingbotca2553c6/dailyscanfunctiond637b57frepo` |
 | ECR: MonitorStops | `stocktradingbotca2553c6/monitorstopsfunctiona370411drepo` |
 | ECR: EodSnapshot | `stocktradingbotca2553c6/eodsnapshotfunction18ab22d1repo` |
+| SNS: Alerts Topic | `stock-trading-bot-TradingAlertsTopic-*` (created by SAM) |
 | SAM Managed Bucket | `aws-sam-cli-managed-default-samclisourcebucket-2engsmriowim` |
 | GitHub OIDC Role | `arn:aws:iam::042697403670:role/github-actions-stock-trader` |
 
@@ -178,6 +185,7 @@ Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (or mode-specific `_P
 - `TRADING_MODE` — `paper`
 - `ALPACA_API_KEY` — paper trading key
 - `ALPACA_SECRET_KEY` — paper trading secret
+- `NOTIFICATION_EMAIL` — email address for SNS trade alerts
 
 **Pipeline (`.github/workflows/deploy.yml`):**
 1. **Test job** (all pushes + PRs): Install deps → `python -c "from src.config import load_config"`

@@ -73,4 +73,5 @@ jobs:
             --parameter-overrides \
               TradingMode=${{ secrets.TRADING_MODE }} \
               AlpacaApiKey=${{ secrets.ALPACA_API_KEY }} \
-              AlpacaSecretKey=${{ secrets.ALPACA_SECRET_KEY }}
+              AlpacaSecretKey=${{ secrets.ALPACA_SECRET_KEY }} \
+              NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }}
