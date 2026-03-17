@@ -147,6 +147,7 @@ Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (or mode-specific `_P
 Notification config:
 - `NOTIFIER_TYPE` env var: `"console"` (default local), `"sns"`, or `"console+sns"` (Lambda default)
 - `SNS_TOPIC_ARN` env var: set automatically by SAM template in Lambda
+- SNS subscription: email protocol (no origination identity needed; SMS requires a toll-free number)
 - MultiNotifier wraps multiple notifiers when `+` separator is used
 
 ---
@@ -184,7 +185,7 @@ Notification config:
 - `TRADING_MODE` — `paper`
 - `ALPACA_API_KEY` — paper trading key
 - `ALPACA_SECRET_KEY` — paper trading secret
-- `NOTIFICATION_PHONE` — E.164 phone number for SMS (e.g., `+15551234567`)
+- `NOTIFICATION_EMAIL` — email address for SNS trade alerts
 
 **Pipeline (`.github/workflows/deploy.yml`):**
 1. **Test job** (all pushes + PRs): Install deps → `python -c "from src.config import load_config"`
