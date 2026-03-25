@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 
+from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
@@ -13,6 +16,32 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("stock-trader")
+
+# Track rate limit hits per Lambda invocation for notification
+_rate_limit_hits: list[dict] = []
+
+
+def get_rate_limit_hits() -> list[dict]:
+    """Return and clear accumulated rate limit hits."""
+    hits = list(_rate_limit_hits)
+    _rate_limit_hits.clear()
+    return hits
+
+
+def _handle_rate_limit(func_name: str, error: APIError, retry: bool = True):
+    """Log a rate limit hit and optionally retry after backoff."""
+    _rate_limit_hits.append({
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "function": func_name,
+        "message": str(error),
+    })
+    logger.warning("RATE LIMIT HIT in %s: %s", func_name, error)
+    if retry:
+        wait = 2
+        logger.info("Retrying %s after %ds backoff...", func_name, wait)
+        time.sleep(wait)
 
 
 def _get_credentials(paper: bool = True) -> tuple:
@@ -84,9 +113,19 @@ def get_positions(client: TradingClient) -> list[dict]:
 
 
 def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dict:
-    """Get the latest quote for a symbol."""
+    """Get the latest quote for a symbol. Retries on rate limit."""
     request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-    quotes = data_client.get_stock_latest_quote(request)
+    for attempt in range(3):
+        try:
+            quotes = data_client.get_stock_latest_quote(request)
+            break
+        except APIError as e:
+            if e.status_code == 429:
+                _handle_rate_limit("get_latest_quote", e)
+                continue
+            raise
+    else:
+        raise APIError("Rate limit retries exhausted for get_latest_quote")
     quote = quotes[symbol]
     return {
         "symbol": symbol,
@@ -192,3 +231,51 @@ def fetch_stock_bars(
         end=end,
     )
     return data_client.get_stock_bars(request)
+
+
+def fetch_stock_bars_batch(
+    data_client: StockHistoricalDataClient,
+    symbols: list[str],
+    start: str,
+    end: str | None = None,
+    timeframe: TimeFrame | None = None,
+    chunk_size: int = 100,
+):
+    """Fetch historical bar data for multiple symbols in batched API calls.
+
+    Returns a dict mapping symbol -> list of bars. Chunks requests to avoid
+    oversized payloads (default 100 symbols per request). Retries on 429.
+    """
+    if timeframe is None:
+        timeframe = TimeFrame(1, TimeFrameUnit.Day)
+
+    results = {}
+    for i in range(0, len(symbols), chunk_size):
+        chunk = symbols[i:i + chunk_size]
+        request = StockBarsRequest(
+            symbol_or_symbols=chunk,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+        )
+        for attempt in range(3):
+            try:
+                bar_set = data_client.get_stock_bars(request)
+                break
+            except APIError as e:
+                if e.status_code == 429:
+                    _handle_rate_limit("fetch_stock_bars_batch", e)
+                    continue
+                raise
+        else:
+            logger.error("Rate limit retries exhausted for chunk %d", i // chunk_size + 1)
+            for sym in chunk:
+                results[sym] = []
+            continue
+
+        for sym in chunk:
+            try:
+                results[sym] = bar_set[sym]
+            except Exception:
+                results[sym] = []
+    return results
