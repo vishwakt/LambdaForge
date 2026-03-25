@@ -10,7 +10,7 @@
     "min_confidence": 0.5
   },
   "scheduler": {
-    "run_time": "09:45",
+    "run_time": "09:30",
     "monitor_interval_min": 2,
     "symbols": [
       "AAPL",

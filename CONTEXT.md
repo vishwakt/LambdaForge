@@ -93,8 +93,8 @@ EventBridge (cron) → Lambda → S3 (download trades.db)
 ### Four Lambda Functions
 | Function | Schedule | Handler | Purpose |
 |----------|----------|---------|---------|
-| DailyScanFunction | 09:45 ET weekdays (cron 45 14 ? * MON-FRI *) | handler.daily_scan_handler | Full daily scan cycle |
-| MonitorStopsFunction | Every 15 min (rate 15 minutes) | handler.monitor_stops_handler | Trailing stop-loss check |
+| DailyScanFunction | 09:30 ET weekdays (cron 30 14 ? * MON-FRI *) | handler.daily_scan_handler | Full daily scan cycle |
+| MonitorStopsFunction | Every 2 min (configurable via SSM) | handler.monitor_stops_handler | Trailing stop-loss check |
 | EodSnapshotFunction | 15:55 ET weekdays (cron 55 20 ? * MON-FRI *) | handler.eod_snapshot_handler | End-of-day snapshot + benchmark |
 | WeeklyDigestFunction | Friday 15:55 ET (cron 55 20 ? * FRI *) | handler.weekly_digest_handler | Weekly performance digest |
 
@@ -149,6 +149,8 @@ Priority (highest to lowest):
 | `max_concentration` | String | 0.15 | Max % per symbol |
 | `max_daily_loss` | String | 0.02 | Daily loss limit |
 | `min_confidence` | String | 0.5 | Minimum signal confidence |
+| `monitor_interval` | String | 2 | Stop-loss monitor interval (minutes) |
+| `kill-switch` | String | alive | `alive` or `kill` — stops trading and liquidates |
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
 
@@ -322,9 +324,9 @@ sam deploy           # Subsequent (uses samconfig.toml)
 
 ### Modifying Lambda Schedule
 Edit `template.yaml` cron expressions (note: times are UTC, not ET):
-- `cron(45 14 ? * MON-FRI *)` = 09:45 ET
+- `cron(30 14 ? * MON-FRI *)` = 09:30 ET
 - `cron(55 20 ? * MON-FRI *)` = 15:55 ET
-- `rate(15 minutes)` = every 15 min
+- `rate(N minutes)` = configurable via `MonitorIntervalMinutes` SAM parameter (default: 2)
 
 ---
 
@@ -339,7 +341,7 @@ RiskManager.check()
             ↓
         log_trade(side="buy", status="submitted", order_id, stop_loss, take_profit)
             ↓
-        [Position held, monitored by stop-loss checker every 15 min]
+        [Position held, monitored by stop-loss checker every 2 min]
             ↓
         Exit trigger (strategy SELL signal OR stop-loss hit)
             ↓
@@ -362,3 +364,39 @@ boto3>=1.26.0        # S3 sync for Lambda trades.db persistence
 ```
 
 Python 3.9 (Lambda runtime constraint). Docker ARM64 images (Graviton2 Lambda).
+
+---
+
+## 15. Kill Switch
+
+Emergency halt that stops all trading and liquidates all open positions.
+
+**Lambda function name:** Found in CloudFormation Outputs as `KillSwitchFunctionName`, or via:
+```bash
+aws cloudformation describe-stacks --stack-name stock-trading-bot \
+  --query "Stacks[0].Outputs[?OutputKey=='KillSwitchFunctionName'].OutputValue" \
+  --output text
+```
+
+**Activate (stop trading + liquidate):**
+```bash
+aws lambda invoke --function-name <KillSwitchFunctionName> \
+  --payload '{"action":"kill"}' /dev/stdout
+```
+
+**Deactivate (resume trading):**
+```bash
+aws lambda invoke --function-name <KillSwitchFunctionName> \
+  --payload '{"action":"alive"}' /dev/stdout
+```
+
+**Manual path (no CLI access):**
+Set SSM parameter `/stock-bot/kill-switch` to `kill` in the AWS Console.
+The next scheduled Lambda run (within 2 minutes) will read the parameter,
+liquidate all positions, and halt trading.
+
+**How it works:**
+- Every trading handler checks `/stock-bot/kill-switch` SSM parameter on entry
+- If `kill`: cancels all open orders, market-sells all positions, then exits
+- If `alive` (default): normal trading continues
+- The kill switch Lambda sets the SSM parameter AND immediately liquidates
