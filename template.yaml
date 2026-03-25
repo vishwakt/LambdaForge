@@ -24,6 +24,7 @@ Globals:
         DB_PATH: /tmp/trades.db
         SNS_TOPIC_ARN: !Ref TradingAlertsTopic
         NOTIFIER_TYPE: console+sns
+        NOTIFICATION_EMAIL: !If [HasNotificationEmail, !Ref NotificationEmail, ""]
 
 Resources:
   # S3 bucket for persistent trades.db storage
@@ -85,6 +86,18 @@ Resources:
                   - sns:Publish
                 Resource:
                   - !Ref TradingAlertsTopic
+        - PolicyName: SESSendEmail
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    ses:FromAddress: !Ref NotificationEmail
         - PolicyName: SSMParameterAccess
           PolicyDocument:
             Version: "2012-10-17"
