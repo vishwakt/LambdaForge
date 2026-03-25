@@ -450,3 +450,50 @@ aws lambda invoke --function-name $(fn WeeklyDigestFunction) \
 ```
 
 **Note:** Trading Lambdas (DailyScan, MonitorStops) produce meaningful results only during market hours (9:30 AM–4:00 PM ET, Mon–Fri). Outside market hours they run without error but may skip trading logic.
+
+---
+
+## 17. Dual-Stack Architecture (Paper vs Live)
+
+Paper and live trading run as **independent CloudFormation stacks** from the same template. No shared state.
+
+| | Paper | Live |
+|---|---|---|
+| Stack name | `stock-trading-bot` | `stock-trading-bot-live` |
+| SSM prefix | `/stock-bot/` | `/stock-bot-live/` |
+| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` |
+| SNS topic | `Stock Trading Bot Alerts (paper)` | `Stock Trading Bot Alerts (live)` |
+| Deploy trigger | Push to `main` | Manual `workflow_dispatch` (type `DEPLOY-LIVE`) |
+| Kill switch | `/stock-bot/kill-switch` | `/stock-bot-live/kill-switch` |
+| Workflow file | `.github/workflows/deploy.yml` | `.github/workflows/deploy-live.yml` |
+
+### Deploying Live
+
+1. Go to GitHub repo → Actions → "Deploy Live"
+2. Click "Run workflow"
+3. Type `DEPLOY-LIVE` in the confirmation field
+4. Click "Run workflow"
+
+The live stack creates its own S3 bucket, SNS topic, Lambda functions, and IAM role — completely isolated from paper.
+
+### SSM Parameters for Live
+
+Before the first live deploy, provision these SSM parameters under `/stock-bot-live/`:
+```bash
+aws ssm put-parameter --name "/stock-bot-live/trading_mode" --value "live" --type String
+aws ssm put-parameter --name "/stock-bot-live/alpaca_api_key" --value "<LIVE_KEY>" --type SecureString
+aws ssm put-parameter --name "/stock-bot-live/alpaca_secret_key" --value "<LIVE_SECRET>" --type SecureString
+```
+
+### Testing Live Lambdas
+
+Same commands as Section 16, but change the stack name:
+```bash
+STACK=stock-trading-bot-live
+fn() { aws cloudformation describe-stack-resources --stack-name $STACK --logical-resource-id $1 --query "StackResources[0].PhysicalResourceId" --output text; }
+```
+
+### Local Deploy (without GitHub Actions)
+```bash
+sam deploy --config-env live    # Uses [live] section in samconfig.toml
+```
