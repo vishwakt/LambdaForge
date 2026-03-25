@@ -193,11 +193,12 @@ def weekly_digest_handler(event, context):
 
 
 def kill_switch_handler(event, context):
-    """Manual invoke: activate or deactivate the kill switch.
+    """Manual invoke: activate, deactivate, or check the kill switch.
 
     Payload:
-      {"action": "kill"}  — liquidate all positions and stop trading
-      {"action": "alive"} — resume normal trading
+      {"action": "kill"}   — liquidate all positions and stop trading
+      {"action": "alive"}  — resume normal trading
+      {"action": "status"} — check current kill switch state
 
     CLI usage:
       aws lambda invoke --function-name <KillSwitchFunctionName> \
@@ -205,10 +206,17 @@ def kill_switch_handler(event, context):
     """
     action = event.get("action", "kill").lower()
 
-    if action not in ("kill", "alive"):
+    if action not in ("kill", "alive", "status"):
         return {
             "statusCode": 400,
-            "body": f"Invalid action '{action}'. Use 'kill' or 'alive'.",
+            "body": f"Invalid action '{action}'. Use 'kill', 'alive', or 'status'.",
+        }
+
+    if action == "status":
+        engaged = _check_kill_switch()
+        return {
+            "statusCode": 200,
+            "body": f"Kill switch is {'ENGAGED' if engaged else 'DISENGAGED (normal trading)'}",
         }
 
     _set_kill_switch(action)
