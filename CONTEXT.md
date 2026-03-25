@@ -2,7 +2,7 @@
 
 > **Purpose:** Compressed context document for AI assistants and future developers.
 > Covers architecture, file map, AWS deployment, IAM, CI/CD, and known gotchas.
-> Last updated: 2026-03-24 (end of Milestone 7).
+> Last updated: 2026-03-25 (end of Milestone 7).
 
 ---
 
@@ -63,7 +63,8 @@ stock-trading-v1/
 ├── .dockerignore
 ├── template.yaml            # SAM: 5 Lambda functions + EventBridge + S3 + SNS + IAM
 ├── .github/workflows/
-│   └── deploy.yml           # CI/CD: test → SAM build → SAM deploy
+│   ├── deploy.yml           # CI/CD: test → SAM build → SAM deploy (paper, auto on push)
+│   └── deploy-live.yml      # CI/CD: test → SAM build → SAM deploy (live, manual workflow_dispatch)
 ├── iam-deployer-policy.json # IAM policy for GitHub Actions deployer
 ├── iam-ops-policy.json      # IAM policy for monitoring/operations
 ├── SPEC.md                  # Original specification
@@ -79,19 +80,25 @@ stock-trading-v1/
 ```
 EventBridge (cron) → Lambda → S3 (download trades.db)
                        ↓
-               TradingEngine.run_daily_scan()
+               TradingEngine.run_daily_scan()         (09:30 ET, once)
                  ├── Save daily snapshot
                  ├── Check exits (strategy signals on open positions)
                  ├── Scan entries (strategy signals on watchlist)
                  │     └── RiskManager.check() → approve/reject
                  │           └── place_market_order() via Alpaca
                  │                 └── TradeLog.log_trade()
-                 └── Notifier.notify_daily_summary()
+                 └── BatchingNotifier.flush_trades()
+                       ↓
+               TradingEngine.monitor_stops()          (every 2 min)
+                 ├── Check trailing stops (real-time quotes)
+                 ├── Check exit signals (batched bars, open positions)
+                 ├── Scan entries (batched bars, full 218-symbol watchlist)
+                 └── BatchingNotifier.flush_trades()
                        ↓
                Lambda → S3 (upload trades.db)
 ```
 
-### Four Lambda Functions
+### Five Lambda Functions
 | Function | Schedule | Handler | Purpose |
 |----------|----------|---------|---------|
 | DailyScanFunction | 09:30 ET weekdays (cron 30 14 ? * MON-FRI *) | handler.daily_scan_handler | Full daily scan cycle |
@@ -134,12 +141,12 @@ risk_rejections (id, timestamp, symbol, strategy, action, confidence,
 ## 5. Configuration Hierarchy
 
 Priority (highest to lowest):
-1. **AWS SSM Parameter Store** — `/stock-bot/*` prefix (Lambda runtime, no redeploy needed)
+1. **AWS SSM Parameter Store** — `/stock-bot/*` prefix for paper, `/stock-bot-live/*` for live (Lambda runtime, no redeploy needed)
 2. **Environment variables** — `DB_PATH`, `NOTIFIER_TYPE`, `SNS_TOPIC_ARN`
 3. **config.json** — JSON file at project root
 4. **Code defaults** — in `src/config.py` dataclasses
 
-### SSM Parameters (`/stock-bot/` prefix)
+### SSM Parameters (`/stock-bot/` for paper, `/stock-bot-live/` for live)
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trading_mode` | String | paper | paper or live |
@@ -168,16 +175,35 @@ Notification config:
 
 | Resource | Identifier |
 |----------|------------|
+### Paper Stack (`stock-trading-bot`)
+| Resource | Identifier |
+|----------|------------|
 | CloudFormation Stack | `stock-trading-bot` |
-| Lambda: DailyScan | `stock-trading-bot-DailyScanFunction-TsOJGTTMStSf` |
-| Lambda: MonitorStops | `stock-trading-bot-MonitorStopsFunction-ogDggkNhOhQQ` |
-| Lambda: EodSnapshot | `stock-trading-bot-EodSnapshotFunction-b3fuAvFdFUFW` |
+| Lambda: DailyScan | `stock-trading-bot-DailyScanFunction-*` |
+| Lambda: MonitorStops | `stock-trading-bot-MonitorStopsFunction-*` |
+| Lambda: EodSnapshot | `stock-trading-bot-EodSnapshotFunction-*` |
+| Lambda: WeeklyDigest | `stock-trading-bot-WeeklyDigestFunction-*` |
+| Lambda: KillSwitch | `stock-trading-bot-KillSwitchFunction-*` |
 | S3: Trades DB | `stock-trader-db-042697403670` |
-| IAM: Lambda Role | `stock-trading-bot-TradingBotRole-WOqyrXj8Ea0Z` |
-| ECR: DailyScan | `stocktradingbotca2553c6/dailyscanfunctiond637b57frepo` |
-| ECR: MonitorStops | `stocktradingbotca2553c6/monitorstopsfunctiona370411drepo` |
-| ECR: EodSnapshot | `stocktradingbotca2553c6/eodsnapshotfunction18ab22d1repo` |
-| SNS: Alerts Topic | `stock-trading-bot-TradingAlertsTopic-*` (created by SAM) |
+| SSM Prefix | `/stock-bot/` |
+| SNS: Alerts Topic | `Stock Trading Bot Alerts (paper)` |
+
+### Live Stack (`stock-trading-bot-live`)
+| Resource | Identifier |
+|----------|------------|
+| CloudFormation Stack | `stock-trading-bot-live` |
+| Lambda: DailyScan | `stock-trading-bot-live-DailyScanFunction-*` |
+| Lambda: MonitorStops | `stock-trading-bot-live-MonitorStopsFunction-*` |
+| Lambda: EodSnapshot | `stock-trading-bot-live-EodSnapshotFunction-*` |
+| Lambda: WeeklyDigest | `stock-trading-bot-live-WeeklyDigestFunction-*` |
+| Lambda: KillSwitch | `stock-trading-bot-live-KillSwitchFunction-*` |
+| S3: Trades DB | `stock-trader-db-live-042697403670` |
+| SSM Prefix | `/stock-bot-live/` |
+| SNS: Alerts Topic | `Stock Trading Bot Alerts (live)` |
+
+### Shared Resources
+| Resource | Identifier |
+|----------|------------|
 | SAM Managed Bucket | `aws-sam-cli-managed-default-samclisourcebucket-2engsmriowim` |
 | GitHub OIDC Role | `arn:aws:iam::042697403670:role/github-actions-stock-trader` |
 
@@ -196,9 +222,13 @@ Notification config:
 - `AWS_ROLE_ARN` — `arn:aws:iam::042697403670:role/github-actions-stock-trader`
 - `NOTIFICATION_EMAIL` — email for CloudFormation SNS subscription
 
-**Pipeline (`.github/workflows/deploy.yml`):**
+**Paper pipeline (`.github/workflows/deploy.yml`):**
 1. **Test job** (all pushes + PRs): Install deps → `python -c "from src.config import load_config"`
-2. **Deploy job** (main branch only): OIDC auth → QEMU (ARM) → Buildx → SAM build → SAM deploy
+2. **Deploy job** (main branch only): OIDC auth → QEMU (ARM) → Buildx → SAM build → SAM deploy (`Environment=paper`)
+
+**Live pipeline (`.github/workflows/deploy-live.yml`):**
+1. **Trigger:** `workflow_dispatch` only (manual, requires typing `DEPLOY-LIVE` to confirm)
+2. **Deploy job:** Same build steps, deploys to `stock-trading-bot-live` stack (`Environment=live`)
 
 **Key SAM deploy flags:** `--resolve-s3`, `--resolve-image-repos`, `--capabilities CAPABILITY_IAM`
 
@@ -216,7 +246,7 @@ File: `iam-deployer-policy.json`.
 Scoped read/invoke permissions:
 - CloudWatch Logs: read for `/aws/lambda/stock-trading-bot-*`
 - Lambda: invoke + read for `stock-trading-bot-*` functions
-- S3: read/write for `stock-trader-db-042697403670`
+- S3: read/write for `stock-trader-db-042697403670` and `stock-trader-db-live-042697403670`
 - EventBridge: read-only
 - IAM: read-only
 
@@ -238,6 +268,7 @@ File: `iam-ops-policy.json`.
 | ECR repo names don't match policy | SAM creates lowercase no-hyphen names like `stocktradingbotca2553c6/...` | Use broad `*` in deployer policy |
 | Docker build cache corruption | Stale layer cache on Mac | `docker builder prune -f` |
 | OIDC auth failure | GitHub username was `vishwakt` not `vishwak` | Fixed trust policy condition |
+| Lambda invoke UTF-8 error on macOS | AWS CLI v2 encodes payload as base64 by default | Add `--cli-binary-format raw-in-base64-out` flag |
 
 ---
 
