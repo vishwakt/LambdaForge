@@ -29,6 +29,7 @@ Globals:
         SNS_TOPIC_ARN: !Ref TradingAlertsTopic
         NOTIFIER_TYPE: console+sns
         NOTIFICATION_EMAIL: !If [HasNotificationEmail, !Ref NotificationEmail, ""]
+        SSM_PREFIX: /stock-bot/
 
 Resources:
   # S3 bucket for persistent trades.db storage
@@ -110,6 +111,7 @@ Resources:
                 Action:
                   - ssm:GetParameter
                   - ssm:GetParametersByPath
+                  - ssm:PutParameter
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot/*"
 
@@ -196,6 +198,21 @@ Resources:
       DockerContext: .
       Dockerfile: Dockerfile
 
+  # Lambda Function: Kill Switch (manual invoke only, no schedule)
+  KillSwitchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - handler.kill_switch_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 120
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
 Outputs:
   DailyScanFunctionArn:
     Description: Daily Scan Lambda ARN
@@ -209,3 +226,6 @@ Outputs:
   TradingAlertsTopicArn:
     Description: SNS topic ARN for trade alerts
     Value: !Ref TradingAlertsTopic
+  KillSwitchFunctionName:
+    Description: Kill Switch Lambda function name (invoke with aws lambda invoke)
+    Value: !Ref KillSwitchFunction

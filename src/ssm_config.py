@@ -27,7 +27,12 @@ _PARAM_MAP = {
 }
 
 
-def load_ssm_params(prefix: str = "/stock-bot/") -> dict:
+def get_ssm_prefix() -> str:
+    """Return the SSM parameter prefix for this stack."""
+    return os.getenv("SSM_PREFIX", "/stock-bot/")
+
+
+def load_ssm_params(prefix: str | None = None) -> dict:
     """Fetch all parameters under *prefix* from SSM Parameter Store.
 
     Returns a dict keyed by the short name (prefix stripped), e.g.
@@ -35,6 +40,9 @@ def load_ssm_params(prefix: str = "/stock-bot/") -> dict:
 
     Returns ``{}`` when SSM is unreachable (local dev, missing creds, etc.).
     """
+    if prefix is None:
+        prefix = get_ssm_prefix()
+
     try:
         import boto3
         from botocore.exceptions import ClientError, NoCredentialsError
