@@ -192,6 +192,20 @@ def weekly_digest_handler(event, context):
         _sync_db_to_s3()
 
 
+def hourly_digest_handler(event, context):
+    """EventBridge trigger: hourly trade activity digest.
+
+    Queries trades and rejections from the last hour and sends
+    consolidated email summaries. Only sends if there was activity.
+    """
+    engine = _get_engine()
+    try:
+        engine.generate_hourly_digest()
+        return {"statusCode": 200, "body": "Hourly digest complete"}
+    finally:
+        _sync_db_to_s3()
+
+
 def kill_switch_handler(event, context):
     """Manual invoke: activate, deactivate, or check the kill switch.
 
