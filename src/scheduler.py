@@ -36,7 +36,10 @@ class TradingEngine:
         self.paper = self.config.trading_mode == "paper"
         self.trade_log = TradeLog(self.config.db_path)
         self.risk_manager = RiskManager(self.config.risk, self.trade_log)
-        self.notifier = get_notifier(self.config.notifier)
+        self.notifier = get_notifier(
+            self.config.notifier,
+            notify_frequency=self.config.notify_frequency,
+        )
 
         mode_label = "PAPER" if self.paper else "LIVE"
         logger.info("TradingEngine initialized in %s mode", mode_label)
@@ -599,6 +602,57 @@ class TradingEngine:
             self.trade_log, self.config, account_info, open_positions,
         )
         self.notifier.notify_weekly_digest(digest)
+
+
+    def generate_hourly_digest(self):
+        """Query trades and rejections from the last hour and send digest emails.
+
+        This is called by the hourly digest Lambda. It reads directly from
+        the DB (not from in-memory buffers) so it works across Lambda invocations.
+        """
+        from datetime import timedelta
+
+        cutoff = (datetime.now() - timedelta(hours=1)).isoformat()
+        recent_trades = self.trade_log.get_trades_since(cutoff)
+        recent_rejections = self.trade_log.get_rejections_since(cutoff)
+
+        buys = [t for t in recent_trades if t["side"] == "buy"]
+        sells = [t for t in recent_trades if t["side"] == "sell"]
+
+        if not buys and not sells and not recent_rejections:
+            logger.info("Hourly digest: no activity in the last hour")
+            return
+
+        # Use a realtime notifier for the digest (always sends)
+        digest_notifier = get_notifier(
+            self.config.notifier, notify_frequency="realtime"
+        )
+
+        # Buffer and flush trades through the BatchingNotifier
+        for t in recent_trades:
+            digest_notifier.notify_trade(
+                side=t["side"],
+                symbol=t["symbol"],
+                qty=int(t["qty"]),
+                price=t.get("fill_price") or 0,
+                strategy=t["strategy"],
+                reason=t.get("reason", ""),
+                pnl=t.get("pnl"),
+            )
+
+        for r in recent_rejections:
+            digest_notifier.notify_risk_rejection(
+                symbol=r["symbol"],
+                strategy=r["strategy"],
+                action=r["action"],
+                reasons=r["rejection_reason"].split("; "),
+            )
+
+        digest_notifier.flush_trades()
+        logger.info(
+            "Hourly digest sent: %d buys, %d sells, %d rejections",
+            len(buys), len(sells), len(recent_rejections),
+        )
 
 
 def run_scheduler(config: AppConfig | None = None):
