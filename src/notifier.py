@@ -66,6 +66,10 @@ class Notifier(ABC):
         """Called on Friday EOD with the weekly performance report."""
         ...
 
+    def flush_trades(self):
+        """Flush any buffered trade notifications. No-op by default."""
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
@@ -463,6 +467,115 @@ class MultiNotifier(Notifier):
             except Exception as e:
                 logger.error("Notifier %s failed: %s", type(n).__name__, e)
 
+    def flush_trades(self):
+        for n in self.notifiers:
+            try:
+                n.flush_trades()
+            except Exception as e:
+                logger.error("Notifier %s failed: %s", type(n).__name__, e)
+
+
+# ---------------------------------------------------------------------------
+# Batching notifier
+# ---------------------------------------------------------------------------
+
+class BatchingNotifier(Notifier):
+    """Wraps a notifier to batch trade notifications into a single email.
+
+    Buffers notify_trade calls and sends one consolidated summary when
+    flush_trades() is called. All other notifications are passed through
+    immediately.
+    """
+
+    def __init__(self, inner: Notifier):
+        self.inner = inner
+        self._trade_buffer: list[dict] = []
+
+    def notify_trade(self, side, symbol, qty, price, strategy, reason,
+                     all_strategy_signals=None, pnl=None):
+        self._trade_buffer.append({
+            "side": side, "symbol": symbol, "qty": qty,
+            "price": price, "strategy": strategy, "reason": reason,
+            "pnl": pnl,
+        })
+
+    def flush_trades(self):
+        if not self._trade_buffer:
+            return
+        if len(self._trade_buffer) == 1:
+            t = self._trade_buffer[0]
+            self.inner.notify_trade(**t)
+        else:
+            self._send_consolidated()
+        self._trade_buffer.clear()
+
+    def _send_consolidated(self):
+        """Format and send a single summary of all buffered trades."""
+        buys = [t for t in self._trade_buffer if t["side"].lower() == "buy"]
+        sells = [t for t in self._trade_buffer if t["side"].lower() == "sell"]
+        total_pnl = sum(t["pnl"] for t in self._trade_buffer if t["pnl"] is not None)
+
+        lines = [
+            f"TRADE SUMMARY — {len(self._trade_buffer)} trades executed",
+            "",
+        ]
+
+        if buys:
+            lines.append(f"BUYS ({len(buys)})")
+            for t in buys:
+                lines.append(
+                    f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]"
+                )
+            lines.append("")
+
+        if sells:
+            lines.append(f"SELLS ({len(sells)})")
+            for t in sells:
+                pnl_str = f"  P&L: ${t['pnl']:+.2f}" if t["pnl"] is not None else ""
+                lines.append(
+                    f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]{pnl_str}"
+                )
+            lines.append("")
+
+        if any(t["pnl"] is not None for t in self._trade_buffer):
+            lines.append(f"Total P&L: ${total_pnl:+.2f}")
+
+        message = "\n".join(lines)
+
+        # Use _send_html_email if available (SNSNotifier), otherwise _publish
+        if hasattr(self.inner, "_send_html_email"):
+            self.inner._send_html_email(
+                subject=f"{len(self._trade_buffer)} Trades Executed",
+                plain_text=message,
+            )
+        elif hasattr(self.inner, "_publish"):
+            self.inner._publish(
+                subject=f"{len(self._trade_buffer)} Trades Executed",
+                message=message,
+            )
+        else:
+            # ConsoleNotifier or unknown — log each trade individually
+            for t in self._trade_buffer:
+                self.inner.notify_trade(**t)
+
+    def notify_stop_triggered(self, symbol, current_price, stop_price, pnl):
+        self.inner.notify_stop_triggered(symbol, current_price, stop_price, pnl)
+
+    def notify_daily_summary(self, equity, daily_pnl, trades_today,
+                             open_positions, benchmark_data=None,
+                             positions_detail=None, cash=None,
+                             max_positions=12):
+        self.inner.notify_daily_summary(
+            equity, daily_pnl, trades_today, open_positions,
+            benchmark_data, positions_detail, cash, max_positions,
+        )
+
+    def notify_risk_rejection(self, symbol, strategy, action, reasons):
+        self.inner.notify_risk_rejection(symbol, strategy, action, reasons)
+
+    def notify_weekly_digest(self, digest_text):
+        self.inner.notify_weekly_digest(digest_text)
+
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -496,5 +609,7 @@ def get_notifier(notifier_type: str = "console") -> Notifier:
         notifiers.append(cls())
 
     if len(notifiers) == 1:
-        return notifiers[0]
-    return MultiNotifier(notifiers)
+        result = notifiers[0]
+    else:
+        result = MultiNotifier(notifiers)
+    return BatchingNotifier(result)
