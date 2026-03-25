@@ -60,8 +60,6 @@ jobs:
 
       - name: SAM Build
         run: sam build
-        env:
-          DOCKER_BUILDKIT: "1"
 
       - name: SAM Deploy
         run: |
