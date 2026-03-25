@@ -9,5 +9,6 @@ from src.lambda_handlers import (
     monitor_stops_handler,
     eod_snapshot_handler,
     weekly_digest_handler,
+    hourly_digest_handler,
     kill_switch_handler,
 )

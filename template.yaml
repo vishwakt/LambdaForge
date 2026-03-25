@@ -44,6 +44,7 @@ Globals:
         NOTIFIER_TYPE: console+sns
         NOTIFICATION_EMAIL: !If [HasNotificationEmail, !Ref NotificationEmail, ""]
         SSM_PREFIX: !FindInMap [EnvConfig, !Ref Environment, SSMPrefix]
+        NOTIFY_FREQUENCY: hourly
 
 Resources:
   # S3 bucket for persistent trades.db storage
@@ -211,6 +212,27 @@ Resources:
           Properties:
             Schedule: cron(55 20 ? * FRI *)  # Friday 15:55 ET = 20:55 UTC
             Description: Weekly performance digest on Fridays
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  # Lambda Function: Hourly Digest (runs every 60 min during market hours)
+  HourlyDigestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - handler.hourly_digest_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 120
+      Events:
+        HourlySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 15-20 ? * MON-FRI *)  # Every hour 10:30-15:30 ET
+            Description: Hourly trade activity digest during market hours
     Metadata:
       DockerTag: latest
       DockerContext: .

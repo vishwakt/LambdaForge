@@ -487,10 +487,14 @@ class BatchingNotifier(Notifier):
       1. BUY summary — all buys with strategy scores
       2. SELL summary — all sells with P&L
       3. REJECTION summary — all rejected signals with reasons
+
+    When notify_frequency is "hourly" or "daily", flush_trades() suppresses
+    emails — the hourly/daily digest Lambda reads from the DB instead.
     """
 
-    def __init__(self, inner: Notifier):
+    def __init__(self, inner: Notifier, notify_frequency: str = "realtime"):
         self.inner = inner
+        self.notify_frequency = notify_frequency
         self._trade_buffer: list[dict] = []
         self._rejection_buffer: list[dict] = []
 
@@ -510,15 +514,24 @@ class BatchingNotifier(Notifier):
         })
 
     def flush_trades(self):
-        buys = [t for t in self._trade_buffer if t["side"].lower() == "buy"]
-        sells = [t for t in self._trade_buffer if t["side"].lower() == "sell"]
+        if self.notify_frequency == "realtime":
+            buys = [t for t in self._trade_buffer if t["side"].lower() == "buy"]
+            sells = [t for t in self._trade_buffer if t["side"].lower() == "sell"]
 
-        if buys:
-            self._send_buy_summary(buys)
-        if sells:
-            self._send_sell_summary(sells)
-        if self._rejection_buffer:
-            self._send_rejection_summary()
+            if buys:
+                self._send_buy_summary(buys)
+            if sells:
+                self._send_sell_summary(sells)
+            if self._rejection_buffer:
+                self._send_rejection_summary()
+        else:
+            # Suppressed — hourly/daily digest Lambda will read from DB
+            count = len(self._trade_buffer) + len(self._rejection_buffer)
+            if count:
+                logger.info(
+                    "Suppressed %d trade notification(s) (notify_frequency=%s)",
+                    count, self.notify_frequency,
+                )
 
         self._trade_buffer.clear()
         self._rejection_buffer.clear()
@@ -632,13 +645,21 @@ _NOTIFIER_CLASSES = {
 }
 
 
-def get_notifier(notifier_type: str = "console") -> Notifier:
+def get_notifier(
+    notifier_type: str = "console",
+    notify_frequency: str = "realtime",
+) -> Notifier:
     """Factory function to get a notifier by type.
 
     Supports compound types with '+' separator:
       "console"       -> ConsoleNotifier
       "sns"           -> SNSNotifier
       "console+sns"   -> MultiNotifier([ConsoleNotifier, SNSNotifier])
+
+    notify_frequency controls when batched emails are sent:
+      "realtime" — send on every flush (every 2-min cycle)
+      "hourly"   — suppress; hourly digest Lambda reads from DB
+      "daily"    — suppress; only daily summary emails sent
     """
     types = [t.strip() for t in notifier_type.split("+")]
 
@@ -656,4 +677,4 @@ def get_notifier(notifier_type: str = "console") -> Notifier:
         result = notifiers[0]
     else:
         result = MultiNotifier(notifiers)
-    return BatchingNotifier(result)
+    return BatchingNotifier(result, notify_frequency=notify_frequency)

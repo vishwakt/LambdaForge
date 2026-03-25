@@ -159,6 +159,7 @@ Priority (highest to lowest):
 | `max_daily_loss` | String | 0.02 | Daily loss limit |
 | `min_confidence` | String | 0.5 | Minimum signal confidence |
 | `monitor_interval` | String | 2 | Stop-loss monitor interval (minutes) |
+| `notify_frequency` | String | hourly | `realtime`, `hourly`, or `daily` — controls trade email frequency |
 | `kill-switch` | String | alive | `alive` or `kill` — stops trading and liquidates |
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
@@ -180,6 +181,7 @@ Notification config: See **Section 19** for full details on the notifier chain, 
 | Lambda: EodSnapshot | `stock-trading-bot-EodSnapshotFunction-*` |
 | Lambda: WeeklyDigest | `stock-trading-bot-WeeklyDigestFunction-*` |
 | Lambda: KillSwitch | `stock-trading-bot-KillSwitchFunction-*` |
+| Lambda: HourlyDigest | `stock-trading-bot-HourlyDigestFunction-*` |
 | S3: Trades DB | `stock-trader-db-YOUR_AWS_ACCOUNT_ID` |
 | SSM Prefix | `/stock-bot/` |
 | SNS: Alerts Topic | `Stock Trading Bot Alerts (paper)` |
@@ -193,6 +195,7 @@ Notification config: See **Section 19** for full details on the notifier chain, 
 | Lambda: EodSnapshot | `stock-trading-bot-live-EodSnapshotFunction-*` |
 | Lambda: WeeklyDigest | `stock-trading-bot-live-WeeklyDigestFunction-*` |
 | Lambda: KillSwitch | `stock-trading-bot-live-KillSwitchFunction-*` |
+| Lambda: HourlyDigest | `stock-trading-bot-live-HourlyDigestFunction-*` |
 | S3: Trades DB | `stock-trader-db-live-YOUR_AWS_ACCOUNT_ID` |
 | SSM Prefix | `/stock-bot-live/` |
 | SNS: Alerts Topic | `Stock Trading Bot Alerts (live)` |
@@ -635,9 +638,27 @@ aws ses verify-email-identity --email-address <your-email@example.com>
 ```
 Check your inbox and click the verification link. The same email is used as both sender and recipient (`NOTIFICATION_EMAIL` env var / SAM parameter).
 
+### Notification Frequency (`notify_frequency`)
+
+Controls when trade/rejection emails are sent:
+
+| Value | Behavior |
+|-------|----------|
+| `realtime` | Send consolidated emails every 2-min cycle (~30 emails/hour) |
+| `hourly` | **Default.** Suppress per-cycle emails. `HourlyDigestFunction` queries DB and sends 1 digest/hour |
+| `daily` | Suppress all trade emails. Only EOD daily summary + weekly digest sent |
+
+**Stop-loss alerts are always sent immediately** regardless of frequency setting — they are urgent.
+
+Set via:
+- **SSM** (runtime): `aws ssm put-parameter --name "/stock-bot/notify_frequency" --value "hourly" --type String --overwrite`
+- **Environment**: `NOTIFY_FREQUENCY=hourly` (set in `template.yaml` Globals)
+- **Config**: `"notify_frequency": "hourly"` in `config.json`
+
 ### Configuration
 
 - `NOTIFIER_TYPE` env var: `"console"` (local dev), `"sns"`, or `"console+sns"` (Lambda default)
+- `NOTIFY_FREQUENCY` env var: `"realtime"`, `"hourly"` (default), or `"daily"`
 - `SNS_TOPIC_ARN` env var: set automatically by SAM template
 - `NOTIFICATION_EMAIL` env var: set via SAM `NotificationEmail` parameter — required for SES HTML emails
 - All notifiers are wrapped in `BatchingNotifier` automatically by `get_notifier()`
