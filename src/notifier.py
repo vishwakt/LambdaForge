@@ -480,83 +480,130 @@ class MultiNotifier(Notifier):
 # ---------------------------------------------------------------------------
 
 class BatchingNotifier(Notifier):
-    """Wraps a notifier to batch trade notifications into a single email.
+    """Wraps a notifier to batch notifications into consolidated emails.
 
-    Buffers notify_trade calls and sends one consolidated summary when
-    flush_trades() is called. All other notifications are passed through
-    immediately.
+    Buffers trade and rejection notifications, then sends up to 3 separate
+    emails on flush:
+      1. BUY summary — all buys with strategy scores
+      2. SELL summary — all sells with P&L
+      3. REJECTION summary — all rejected signals with reasons
     """
 
     def __init__(self, inner: Notifier):
         self.inner = inner
         self._trade_buffer: list[dict] = []
+        self._rejection_buffer: list[dict] = []
 
     def notify_trade(self, side, symbol, qty, price, strategy, reason,
                      all_strategy_signals=None, pnl=None):
         self._trade_buffer.append({
             "side": side, "symbol": symbol, "qty": qty,
             "price": price, "strategy": strategy, "reason": reason,
+            "all_strategy_signals": all_strategy_signals,
             "pnl": pnl,
         })
 
-    def flush_trades(self):
-        if not self._trade_buffer:
-            return
-        if len(self._trade_buffer) == 1:
-            t = self._trade_buffer[0]
-            self.inner.notify_trade(**t)
-        else:
-            self._send_consolidated()
-        self._trade_buffer.clear()
+    def notify_risk_rejection(self, symbol, strategy, action, reasons):
+        self._rejection_buffer.append({
+            "symbol": symbol, "strategy": strategy,
+            "action": action, "reasons": reasons,
+        })
 
-    def _send_consolidated(self):
-        """Format and send a single summary of all buffered trades."""
+    def flush_trades(self):
         buys = [t for t in self._trade_buffer if t["side"].lower() == "buy"]
         sells = [t for t in self._trade_buffer if t["side"].lower() == "sell"]
-        total_pnl = sum(t["pnl"] for t in self._trade_buffer if t["pnl"] is not None)
-
-        lines = [
-            f"TRADE SUMMARY — {len(self._trade_buffer)} trades executed",
-            "",
-        ]
 
         if buys:
-            lines.append(f"BUYS ({len(buys)})")
-            for t in buys:
-                lines.append(
-                    f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]"
-                )
-            lines.append("")
-
+            self._send_buy_summary(buys)
         if sells:
-            lines.append(f"SELLS ({len(sells)})")
-            for t in sells:
-                pnl_str = f"  P&L: ${t['pnl']:+.2f}" if t["pnl"] is not None else ""
-                lines.append(
-                    f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]{pnl_str}"
-                )
+            self._send_sell_summary(sells)
+        if self._rejection_buffer:
+            self._send_rejection_summary()
+
+        self._trade_buffer.clear()
+        self._rejection_buffer.clear()
+
+    def _send_email(self, subject: str, plain_text: str):
+        """Send via the inner notifier's best available method.
+
+        Handles MultiNotifier by iterating its children so each backend
+        (console, SNS/SES) receives the batched email.
+        """
+        targets = (
+            self.inner.notifiers
+            if hasattr(self.inner, "notifiers")
+            else [self.inner]
+        )
+        for n in targets:
+            if hasattr(n, "_send_html_email"):
+                n._send_html_email(subject=subject, plain_text=plain_text)
+            elif hasattr(n, "_publish"):
+                n._publish(subject=subject, message=plain_text)
+            else:
+                logger.info("%s\n%s", subject, plain_text)
+
+    def _send_buy_summary(self, buys: list[dict]):
+        """Send one consolidated email for all buy trades."""
+        lines = [
+            f"BUY SUMMARY — {len(buys)} position(s) opened",
+            "",
+        ]
+        for t in buys:
+            lines.append(
+                f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]"
+            )
+            lines.append(f"  Reason: {t['reason']}")
+            if t.get("all_strategy_signals"):
+                lines.append("")
+                lines.append(f"  Strategy Scores for {t['symbol']}:")
+                lines.append(_format_strategy_table(t["all_strategy_signals"]))
             lines.append("")
 
-        if any(t["pnl"] is not None for t in self._trade_buffer):
+        self._send_email(
+            subject=f"BUY — {len(buys)} position(s) opened",
+            plain_text="\n".join(lines),
+        )
+
+    def _send_sell_summary(self, sells: list[dict]):
+        """Send one consolidated email for all sell trades."""
+        total_pnl = sum(t["pnl"] for t in sells if t["pnl"] is not None)
+
+        lines = [
+            f"SELL SUMMARY — {len(sells)} position(s) closed",
+            "",
+        ]
+        for t in sells:
+            pnl_str = f"  P&L: ${t['pnl']:+.2f}" if t["pnl"] is not None else ""
+            lines.append(
+                f"  {t['symbol']:<6} {t['qty']:>4} @ ${t['price']:<9.2f} [{t['strategy']}]{pnl_str}"
+            )
+            lines.append(f"  Reason: {t['reason']}")
+            lines.append("")
+
+        if any(t["pnl"] is not None for t in sells):
             lines.append(f"Total P&L: ${total_pnl:+.2f}")
 
-        message = "\n".join(lines)
+        self._send_email(
+            subject=f"SELL — {len(sells)} position(s) closed (P&L: ${total_pnl:+.2f})",
+            plain_text="\n".join(lines),
+        )
 
-        # Use _send_html_email if available (SNSNotifier), otherwise _publish
-        if hasattr(self.inner, "_send_html_email"):
-            self.inner._send_html_email(
-                subject=f"{len(self._trade_buffer)} Trades Executed",
-                plain_text=message,
-            )
-        elif hasattr(self.inner, "_publish"):
-            self.inner._publish(
-                subject=f"{len(self._trade_buffer)} Trades Executed",
-                message=message,
-            )
-        else:
-            # ConsoleNotifier or unknown — log each trade individually
-            for t in self._trade_buffer:
-                self.inner.notify_trade(**t)
+    def _send_rejection_summary(self):
+        """Send one consolidated email for all risk rejections."""
+        rejections = self._rejection_buffer
+        lines = [
+            f"RISK REJECTIONS — {len(rejections)} signal(s) rejected",
+            "",
+        ]
+        for r in rejections:
+            lines.append(f"  {r['action'].upper()} {r['symbol']} [{r['strategy']}]")
+            lines.append(f"    Reasons: {'; '.join(r['reasons'])}")
+        lines.append("")
+
+        self._send_email(
+            subject=f"REJECTED — {len(rejections)} signal(s)",
+            plain_text="\n".join(lines),
+        )
 
     def notify_stop_triggered(self, symbol, current_price, stop_price, pnl):
         self.inner.notify_stop_triggered(symbol, current_price, stop_price, pnl)
@@ -569,9 +616,6 @@ class BatchingNotifier(Notifier):
             equity, daily_pnl, trades_today, open_positions,
             benchmark_data, positions_detail, cash, max_positions,
         )
-
-    def notify_risk_rejection(self, symbol, strategy, action, reasons):
-        self.inner.notify_risk_rejection(symbol, strategy, action, reasons)
 
     def notify_weekly_digest(self, digest_text):
         self.inner.notify_weekly_digest(digest_text)
