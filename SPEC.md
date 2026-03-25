@@ -95,3 +95,5 @@ and reporting.
 - Opportunistic scanning: monitor cycle scans full 218-symbol watchlist for buy/sell signals every 2 min
 - SES HTML email formatting: monospace `<pre>` rendering for daily summary and weekly digest
 - Daily scan moved from 09:45 ET to 09:30 ET (market open)
+- Live trading namespace: parameterized SAM template (Environment=paper/live), dual-stack isolation with separate S3 buckets, SSM prefixes, SNS topics, and IAM roles
+- deploy-live.yml workflow: manual workflow_dispatch with DEPLOY-LIVE confirmation gate
