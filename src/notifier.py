@@ -241,15 +241,20 @@ class ConsoleNotifier(Notifier):
 class SNSNotifier(Notifier):
     """Sends notifications via AWS SNS (email subscriptions).
 
+    For formatted reports (daily summary, weekly digest), sends HTML email
+    via SES so monospace formatting is preserved in email clients.
+
     Requires:
       - SNS_TOPIC_ARN environment variable
+      - NOTIFICATION_EMAIL for HTML emails via SES
       - boto3 (already a dependency)
-      - Lambda role must have sns:Publish permission
+      - Lambda role must have sns:Publish and ses:SendEmail permissions
     """
 
     def __init__(self):
         import boto3
         self.topic_arn = os.getenv("SNS_TOPIC_ARN", "")
+        self.notification_email = os.getenv("NOTIFICATION_EMAIL", "")
         if not self.topic_arn:
             logger.warning(
                 "SNS_TOPIC_ARN not set — SNS notifications will be skipped"
@@ -258,6 +263,10 @@ class SNSNotifier(Notifier):
         else:
             self.client = boto3.client("sns")
             logger.info("SNSNotifier initialized: %s", self.topic_arn)
+        if self.notification_email:
+            self.ses_client = boto3.client("ses")
+        else:
+            self.ses_client = None
 
     def _publish(self, subject: str, message: str):
         """Publish a message to the SNS topic. Fails silently."""
@@ -271,6 +280,41 @@ class SNSNotifier(Notifier):
             )
         except Exception as e:
             logger.error("SNS publish failed: %s", e)
+
+    def _send_html_email(self, subject: str, plain_text: str):
+        """Send an HTML email via SES with monospace formatting.
+
+        Falls back to SNS plain text if SES is not configured.
+        """
+        if not self.ses_client or not self.notification_email:
+            self._publish(subject, plain_text)
+            return
+        import html as html_mod
+        escaped = html_mod.escape(plain_text)
+        html_body = (
+            "<!DOCTYPE html><html><head>"
+            "<meta charset='utf-8'></head><body>"
+            "<pre style='font-family: \"Courier New\", Courier, monospace; "
+            "font-size: 14px; line-height: 1.4; color: #222; "
+            "background: #f9f9f9; padding: 16px; "
+            "white-space: pre; overflow-x: auto;'>"
+            f"{escaped}</pre></body></html>"
+        )
+        try:
+            self.ses_client.send_email(
+                Source=self.notification_email,
+                Destination={"ToAddresses": [self.notification_email]},
+                Message={
+                    "Subject": {"Data": subject, "Charset": "UTF-8"},
+                    "Body": {
+                        "Html": {"Data": html_body, "Charset": "UTF-8"},
+                        "Text": {"Data": plain_text, "Charset": "UTF-8"},
+                    },
+                },
+            )
+        except Exception as e:
+            logger.error("SES send failed, falling back to SNS: %s", e)
+            self._publish(subject, plain_text)
 
     def notify_trade(self, side, symbol, qty, price, strategy, reason,
                      all_strategy_signals=None, pnl=None):
@@ -345,9 +389,9 @@ class SNSNotifier(Notifier):
         sections.append("")
         sections.append(f"Trades today: {trades_today}")
 
-        self._publish(
+        self._send_html_email(
             subject="Daily Summary",
-            message="\n".join(sections),
+            plain_text="\n".join(sections),
         )
 
     def notify_risk_rejection(self, symbol, strategy, action, reasons):
@@ -360,9 +404,9 @@ class SNSNotifier(Notifier):
         )
 
     def notify_weekly_digest(self, digest_text):
-        self._publish(
+        self._send_html_email(
             subject="Weekly Performance Digest",
-            message=digest_text,
+            plain_text=digest_text,
         )
 
 
