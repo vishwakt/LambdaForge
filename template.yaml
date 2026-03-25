@@ -128,8 +128,8 @@ Resources:
         DailySchedule:
           Type: Schedule
           Properties:
-            Schedule: cron(45 14 ? * MON-FRI *)  # 09:45 ET = 14:45 UTC
-            Description: Daily market scan at 09:45 ET
+            Schedule: cron(30 14 ? * MON-FRI *)  # 09:30 ET = 14:30 UTC
+            Description: Daily market scan at 09:30 ET
     Metadata:
       DockerTag: latest
       DockerContext: .
