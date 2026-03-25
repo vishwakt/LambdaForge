@@ -73,6 +73,7 @@ class TradingEngine:
 
         # Daily summary notification
         account_info = get_account_info(trading_client)
+        open_positions = get_positions(trading_client)
         prev = self.trade_log.get_previous_snapshot()
         daily_pnl = None
         if prev:
@@ -81,11 +82,20 @@ class TradingEngine:
             since=datetime.now().strftime("%Y-%m-%d"), limit=100
         ))
 
+        benchmark_closes = self._fetch_benchmark_closes()
+        benchmark_data = self._build_benchmark_data(
+            account_info["equity"], daily_pnl, benchmark_closes,
+        )
+
         self.notifier.notify_daily_summary(
             equity=account_info["equity"],
             daily_pnl=daily_pnl,
             trades_today=trades_today,
-            open_positions=len(get_positions(trading_client)),
+            open_positions=len(open_positions),
+            benchmark_data=benchmark_data,
+            positions_detail=open_positions,
+            cash=account_info["cash"],
+            max_positions=self.config.risk.max_open_positions,
         )
 
         logger.info("DAILY SCAN COMPLETE")
@@ -165,10 +175,14 @@ class TradingEngine:
                     )
                     continue
 
-                self._execute_entry(trading_client, signal, result, strat_name)
+                self._execute_entry(
+                    trading_client, signal, result, strat_name, bars=bars
+                )
                 break
 
-    def _execute_entry(self, trading_client, signal, risk_result, strategy_name):
+    def _execute_entry(
+        self, trading_client, signal, risk_result, strategy_name, bars=None
+    ):
         """Place a buy order and log it."""
         try:
             order = place_market_order(
@@ -177,7 +191,7 @@ class TradingEngine:
                 risk_result.approved_qty,
                 "buy",
             )
-            self.trade_log.log_trade(
+            trade_id = self.trade_log.log_trade(
                 symbol=signal.symbol,
                 side="buy",
                 qty=risk_result.approved_qty,
@@ -189,6 +203,34 @@ class TradingEngine:
                 stop_loss=signal.stop_loss,
                 take_profit=signal.take_profit,
             )
+
+            # Initialize trailing stop at the strategy's stop-loss level
+            if signal.stop_loss and signal.entry_price:
+                self.trade_log.update_trailing_stop(
+                    trade_id,
+                    trailing_stop=signal.stop_loss,
+                    high_water_mark=signal.entry_price,
+                )
+
+            # Gather all strategy signals for enhanced notification
+            all_strategy_signals = None
+            if bars is not None:
+                all_strategy_signals = []
+                for sn in self.config.scheduler.strategies:
+                    if sn not in STRATEGIES:
+                        continue
+                    try:
+                        sig = STRATEGIES[sn]().generate_signal(signal.symbol, bars)
+                        all_strategy_signals.append({
+                            "strategy": sn,
+                            "action": sig.action.value,
+                            "confidence": sig.confidence,
+                            "stop_loss": sig.stop_loss,
+                            "sell_signal": sig.action == Action.SELL,
+                        })
+                    except Exception:
+                        pass
+
             self.notifier.notify_trade(
                 side="buy",
                 symbol=signal.symbol,
@@ -196,45 +238,73 @@ class TradingEngine:
                 price=signal.entry_price or 0,
                 strategy=strategy_name,
                 reason=signal.reason,
+                all_strategy_signals=all_strategy_signals,
             )
         except Exception as e:
             logger.error("ORDER FAILED: BUY %s: %s", signal.symbol, e)
 
     def _execute_exit(self, trading_client, position, signal, strategy_name):
-        """Place a sell order for an existing position."""
+        """Place a sell order for an existing position.
+
+        Handles pyramided positions — closes ALL open buy trades for the
+        symbol, logging separate sell records per entry for accurate P&L.
+        """
         qty = int(position["qty"])
         try:
             order = place_market_order(
                 trading_client, signal.symbol, qty, "sell"
             )
 
-            open_trades = self.trade_log.get_open_trades()
-            parent_id = None
-            for t in open_trades:
-                if t["symbol"] == signal.symbol:
-                    parent_id = t["id"]
-                    break
-
-            entry_price = position["avg_entry_price"]
             exit_price = position["current_price"]
-            pnl = (exit_price - entry_price) * qty
+            open_trades = [
+                t for t in self.trade_log.get_open_trades()
+                if t["symbol"] == signal.symbol
+            ]
 
-            trade_id = self.trade_log.log_trade(
-                symbol=signal.symbol,
-                side="sell",
-                qty=qty,
-                order_type="market",
-                order_id=order["order_id"],
-                strategy=strategy_name,
-                confidence=signal.confidence,
-                reason=signal.reason,
-                stop_loss=None,
-                take_profit=None,
-                parent_trade_id=parent_id,
-            )
-            self.trade_log.update_trade_status(
-                trade_id, "filled", fill_price=exit_price, pnl=pnl
-            )
+            total_pnl = 0.0
+            for t in open_trades:
+                t_entry = t.get("fill_price") or position["avg_entry_price"]
+                t_qty = int(t["qty"])
+                t_pnl = (exit_price - t_entry) * t_qty
+
+                sell_id = self.trade_log.log_trade(
+                    symbol=signal.symbol,
+                    side="sell",
+                    qty=t_qty,
+                    order_type="market",
+                    order_id=order["order_id"],
+                    strategy=strategy_name,
+                    confidence=signal.confidence,
+                    reason=signal.reason,
+                    stop_loss=None,
+                    take_profit=None,
+                    parent_trade_id=t["id"],
+                )
+                self.trade_log.update_trade_status(
+                    sell_id, "filled", fill_price=exit_price, pnl=t_pnl
+                )
+                total_pnl += t_pnl
+
+            # If no open trades found, log a single sell as fallback
+            if not open_trades:
+                entry_price = position["avg_entry_price"]
+                total_pnl = (exit_price - entry_price) * qty
+                sell_id = self.trade_log.log_trade(
+                    symbol=signal.symbol,
+                    side="sell",
+                    qty=qty,
+                    order_type="market",
+                    order_id=order["order_id"],
+                    strategy=strategy_name,
+                    confidence=signal.confidence,
+                    reason=signal.reason,
+                    stop_loss=None,
+                    take_profit=None,
+                )
+                self.trade_log.update_trade_status(
+                    sell_id, "filled", fill_price=exit_price, pnl=total_pnl
+                )
+
             self.notifier.notify_trade(
                 side="sell",
                 symbol=signal.symbol,
@@ -242,12 +312,25 @@ class TradingEngine:
                 price=exit_price,
                 strategy=strategy_name,
                 reason=signal.reason,
+                pnl=total_pnl,
             )
         except Exception as e:
             logger.error("EXIT FAILED for %s: %s", signal.symbol, e)
 
+    def _compute_atr(self, symbol: str, period: int = 14) -> float | None:
+        """Compute Average True Range for trailing stop calculation."""
+        try:
+            bars = fetch_daily_bars(symbol, days=period + 10)
+            if len(bars) < period:
+                return None
+            tr = bars["high"] - bars["low"]
+            return float(tr.iloc[-period:].mean())
+        except Exception as e:
+            logger.debug("ATR calculation failed for %s: %s", symbol, e)
+            return None
+
     def monitor_stops(self):
-        """Check all open positions against their stop-loss levels."""
+        """Check all open positions — update trailing stops and trigger exits."""
         logger.info("Checking stop-losses...")
         trading_client = get_trading_client(paper=self.paper)
         data_client = get_data_client(paper=self.paper)
@@ -257,6 +340,10 @@ class TradingEngine:
             logger.info("No open trades to monitor.")
             return
 
+        # Group trades by symbol to avoid duplicate position lookups
+        positions = get_positions(trading_client)
+        pos_map = {p["symbol"]: p for p in positions}
+
         for trade in open_trades:
             if trade["stop_loss"] is None:
                 continue
@@ -265,41 +352,121 @@ class TradingEngine:
                 quote = get_latest_quote(data_client, trade["symbol"])
                 current_price = quote["bid_price"]
 
-                if current_price <= trade["stop_loss"]:
+                # --- Trailing stop update ---
+                entry_price = trade.get("fill_price") or trade["stop_loss"] / 0.95
+                hwm = trade.get("high_water_mark") or entry_price
+                new_hwm = max(current_price, hwm)
+
+                # Percentage-based trailing stop
+                pct_stop = new_hwm * (1 - self.config.risk.trailing_stop_pct)
+
+                # ATR-based trailing stop
+                atr = self._compute_atr(trade["symbol"])
+                atr_stop = (new_hwm - 2 * atr) if atr else 0.0
+
+                # Use the tighter (higher) of the two
+                new_trailing = max(pct_stop, atr_stop)
+
+                # Never move the stop down
+                current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
+                new_trailing = max(new_trailing, current_trailing)
+
+                # Persist updated trailing stop
+                self.trade_log.update_trailing_stop(
+                    trade["id"], new_trailing, new_hwm
+                )
+
+                # --- Check if stop is triggered ---
+                if current_price <= new_trailing:
                     logger.warning(
-                        "STOP-LOSS TRIGGERED: %s at $%.2f (stop: $%.2f)",
-                        trade["symbol"], current_price, trade["stop_loss"],
+                        "TRAILING STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
+                        trade["symbol"], current_price, new_trailing,
                     )
-                    positions = get_positions(trading_client)
-                    pos = next(
-                        (p for p in positions if p["symbol"] == trade["symbol"]),
-                        None,
-                    )
+                    pos = pos_map.get(trade["symbol"])
                     if pos:
                         exit_signal = Signal(
                             symbol=trade["symbol"],
                             action=Action.SELL,
                             confidence=1.0,
-                            reason=f"Stop-loss triggered at ${current_price:.2f}",
+                            reason=f"Trailing stop triggered at ${current_price:.2f} "
+                                   f"(stop: ${new_trailing:.2f})",
                             entry_price=current_price,
                         )
                         pnl = (current_price - pos["avg_entry_price"]) * int(pos["qty"])
                         self.notifier.notify_stop_triggered(
-                            trade["symbol"], current_price,
-                            trade["stop_loss"], pnl,
+                            trade["symbol"], current_price, new_trailing, pnl,
                         )
                         self._execute_exit(
                             trading_client, pos, exit_signal, trade["strategy"]
                         )
                 else:
                     logger.info(
-                        "  %s: $%.2f (stop: $%.2f) — OK",
-                        trade["symbol"], current_price, trade["stop_loss"],
+                        "  %s: $%.2f (trailing stop: $%.2f, HWM: $%.2f) — OK",
+                        trade["symbol"], current_price, new_trailing, new_hwm,
                     )
             except Exception as e:
                 logger.error(
                     "Stop-loss check failed for %s: %s", trade["symbol"], e
                 )
+
+    def _fetch_benchmark_closes(self) -> dict:
+        """Fetch latest close prices for benchmark indices."""
+        data_client = get_data_client(paper=self.paper)
+        closes = {}
+        for ticker in ("SPY", "QQQ", "DIA"):
+            try:
+                quote = get_latest_quote(data_client, ticker)
+                closes[ticker] = quote["bid_price"]
+            except Exception as e:
+                logger.debug("Benchmark quote failed for %s: %s", ticker, e)
+                closes[ticker] = None
+        return closes
+
+    def _build_benchmark_data(
+        self, equity: float, daily_pnl: float | None,
+        benchmark_closes: dict,
+    ) -> dict | None:
+        """Build benchmark comparison dict with daily + YTD percentages."""
+        # YTD: compare to first snapshot of the year
+        year_start = f"{datetime.now().year}-01-01"
+        snapshots = self.trade_log.get_snapshots(since=year_start, limit=1)
+        first_snap = snapshots[0] if snapshots else None
+
+        bm: dict = {}
+
+        # Portfolio daily %
+        if daily_pnl is not None and equity > 0:
+            prev_equity = equity - daily_pnl
+            bm["portfolio_daily"] = (daily_pnl / prev_equity * 100) if prev_equity else None
+        else:
+            bm["portfolio_daily"] = None
+
+        # Portfolio YTD %
+        if first_snap and first_snap["equity"] > 0:
+            bm["portfolio_ytd"] = (
+                (equity - first_snap["equity"]) / first_snap["equity"] * 100
+            )
+        else:
+            bm["portfolio_ytd"] = None
+
+        # Benchmark daily + YTD
+        prev = self.trade_log.get_previous_snapshot()
+        for ticker, key in [("SPY", "spy"), ("QQQ", "qqq"), ("DIA", "dia")]:
+            close = benchmark_closes.get(ticker)
+            prev_close = prev.get(f"{key}_close") if prev else None
+            first_close = first_snap.get(f"{key}_close") if first_snap else None
+
+            if close and prev_close and prev_close > 0:
+                bm[f"{key}_daily"] = (close - prev_close) / prev_close * 100
+            else:
+                bm[f"{key}_daily"] = None
+
+            if close and first_close and first_close > 0:
+                bm[f"{key}_ytd"] = (close - first_close) / first_close * 100
+            else:
+                bm[f"{key}_ytd"] = None
+
+        return bm if any(v is not None for v in bm.values()) else None
 
     def update_end_of_day(self):
         """Save end-of-day portfolio snapshot for P&L tracking."""
@@ -312,20 +479,50 @@ class TradingEngine:
         if prev:
             daily_pnl = account_info["equity"] - prev["equity"]
 
+        # Fetch benchmark closes
+        benchmark_closes = self._fetch_benchmark_closes()
+
         self.trade_log.save_daily_snapshot(
             equity=account_info["equity"],
             cash=account_info["cash"],
             portfolio_value=account_info["portfolio_value"],
             open_positions=len(open_positions),
             daily_pnl=daily_pnl,
+            spy_close=benchmark_closes.get("SPY"),
+            qqq_close=benchmark_closes.get("QQQ"),
+            dia_close=benchmark_closes.get("DIA"),
         )
+
+        benchmark_data = self._build_benchmark_data(
+            account_info["equity"], daily_pnl, benchmark_closes,
+        )
+
+        trades_today = len(self.trade_log.get_trades(
+            since=datetime.now().strftime("%Y-%m-%d"), limit=100
+        ))
 
         self.notifier.notify_daily_summary(
             equity=account_info["equity"],
             daily_pnl=daily_pnl,
-            trades_today=0,
+            trades_today=trades_today,
             open_positions=len(open_positions),
+            benchmark_data=benchmark_data,
+            positions_detail=open_positions,
+            cash=account_info["cash"],
+            max_positions=self.config.risk.max_open_positions,
         )
+
+
+    def generate_weekly_report(self):
+        """Generate and send the weekly performance digest."""
+        from src.weekly_digest import generate_weekly_digest
+        trading_client = get_trading_client(paper=self.paper)
+        open_positions = get_positions(trading_client)
+        account_info = get_account_info(trading_client)
+        digest = generate_weekly_digest(
+            self.trade_log, self.config, account_info, open_positions,
+        )
+        self.notifier.notify_weekly_digest(digest)
 
 
 def run_scheduler(config: AppConfig | None = None):

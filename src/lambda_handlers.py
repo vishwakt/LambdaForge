@@ -89,3 +89,13 @@ def eod_snapshot_handler(event, context):
         return {"statusCode": 200, "body": "EOD snapshot complete"}
     finally:
         _sync_db_to_s3()
+
+
+def weekly_digest_handler(event, context):
+    """EventBridge trigger: weekly performance digest on Fridays."""
+    engine = _get_engine()
+    try:
+        engine.generate_weekly_report()
+        return {"statusCode": 200, "body": "Weekly digest complete"}
+    finally:
+        _sync_db_to_s3()

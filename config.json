@@ -4,7 +4,9 @@
   "risk": {
     "max_position_pct": 0.05,
     "daily_loss_limit_pct": 0.02,
-    "max_open_positions": 5,
+    "max_open_positions": 12,
+    "trailing_stop_pct": 0.05,
+    "max_concentration_pct": 0.15,
     "min_confidence": 0.5
   },
   "scheduler": {
