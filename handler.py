@@ -8,4 +8,5 @@ from src.lambda_handlers import (
     daily_scan_handler,
     monitor_stops_handler,
     eod_snapshot_handler,
+    weekly_digest_handler,
 )

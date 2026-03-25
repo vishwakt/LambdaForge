@@ -61,6 +61,23 @@ class TradeLog:
                 );
             """)
             conn.commit()
+
+            # Schema migrations (idempotent — safe to run on every init)
+            migrations = [
+                ("trades", "high_water_mark", "REAL"),
+                ("trades", "trailing_stop", "REAL"),
+                ("daily_snapshots", "spy_close", "REAL"),
+                ("daily_snapshots", "qqq_close", "REAL"),
+                ("daily_snapshots", "dia_close", "REAL"),
+            ]
+            for table, col, col_type in migrations:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+            conn.commit()
         finally:
             conn.close()
 
@@ -127,6 +144,25 @@ class TradeLog:
         finally:
             conn.close()
 
+    def update_trailing_stop(
+        self,
+        trade_id: int,
+        trailing_stop: float,
+        high_water_mark: float,
+    ):
+        """Update trailing stop and high-water mark for a trade."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """UPDATE trades
+                   SET trailing_stop = ?, high_water_mark = ?
+                   WHERE id = ?""",
+                (trailing_stop, high_water_mark, trade_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_open_trades(self) -> list[dict]:
         """Get buy trades that have no corresponding exit trade."""
         conn = self._get_conn()
@@ -183,6 +219,22 @@ class TradeLog:
         finally:
             conn.close()
 
+    def get_trades_for_period(
+        self, start: str, end: str
+    ) -> list[dict]:
+        """Get all trades within a date range (inclusive)."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM trades
+                   WHERE date(timestamp) >= ? AND date(timestamp) <= ?
+                   ORDER BY timestamp DESC""",
+                (start, end),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     # --- Daily snapshot operations ---
 
     def save_daily_snapshot(
@@ -192,12 +244,14 @@ class TradeLog:
         portfolio_value: float,
         open_positions: int,
         daily_pnl: float | None = None,
+        spy_close: float | None = None,
+        qqq_close: float | None = None,
+        dia_close: float | None = None,
     ):
         """Save today's portfolio snapshot (upsert by date)."""
         today = date.today().isoformat()
         conn = self._get_conn()
         try:
-            # Use INSERT-or-replace pattern for SQLite compatibility
             existing = conn.execute(
                 "SELECT id FROM daily_snapshots WHERE date = ?", (today,)
             ).fetchone()
@@ -205,16 +259,20 @@ class TradeLog:
                 conn.execute(
                     """UPDATE daily_snapshots
                        SET equity = ?, cash = ?, portfolio_value = ?,
-                           open_positions = ?, daily_pnl = ?
+                           open_positions = ?, daily_pnl = ?,
+                           spy_close = ?, qqq_close = ?, dia_close = ?
                        WHERE date = ?""",
-                    (equity, cash, portfolio_value, open_positions, daily_pnl, today),
+                    (equity, cash, portfolio_value, open_positions, daily_pnl,
+                     spy_close, qqq_close, dia_close, today),
                 )
             else:
                 conn.execute(
                     """INSERT INTO daily_snapshots
-                       (date, equity, cash, portfolio_value, open_positions, daily_pnl)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (today, equity, cash, portfolio_value, open_positions, daily_pnl),
+                       (date, equity, cash, portfolio_value, open_positions,
+                        daily_pnl, spy_close, qqq_close, dia_close)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (today, equity, cash, portfolio_value, open_positions,
+                     daily_pnl, spy_close, qqq_close, dia_close),
                 )
             conn.commit()
         finally:

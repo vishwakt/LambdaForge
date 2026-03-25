@@ -70,3 +70,18 @@ and reporting.
 - Daily P&L summary
 - Trade history with outcomes
 - CLI or web dashboard for portfolio state
+
+### Milestone 5 — Notifications
+- SNS email notifications for trades, stop-losses, daily summaries, risk rejections
+- Configurable notifier types: console, sns, console+sns
+- MultiNotifier pattern for simultaneous delivery
+- AWS CloudFormation-managed SNS topic and email subscription
+
+### Milestone 6 — Enhanced Analytics & Risk
+- Benchmark comparison: portfolio vs S&P 500, NASDAQ, Dow in daily summary email
+- Trailing stop-loss: hybrid percentage (5%) + ATR-based, never moves down
+- Pyramiding: allow adding to winning positions up to 15% concentration limit
+- Max positions raised to 12 (configurable)
+- AWS SSM Parameter Store: all config (including secrets) managed at runtime, no redeploy needed
+- Enhanced trade notifications: all-strategy confidence scores in table format
+- Weekly performance digest: sent Friday EOD with equity curve, strategy breakdown, benchmark comparison
