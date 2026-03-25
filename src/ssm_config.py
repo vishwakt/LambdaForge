@@ -23,6 +23,7 @@ _PARAM_MAP = {
     "max_concentration":  ("risk", "max_concentration_pct", float),
     "max_daily_loss":     ("risk", "daily_loss_limit_pct", float),
     "min_confidence":     ("risk", "min_confidence", float),
+    "monitor_interval":   ("scheduler", "monitor_interval_min", int),
 }
 
 
@@ -88,3 +89,5 @@ def apply_ssm_params(config, ssm_params: dict) -> None:
             setattr(config, field, cast(value))
         elif section == "risk":
             setattr(config.risk, field, cast(value))
+        elif section == "scheduler":
+            setattr(config.scheduler, field, cast(value))
