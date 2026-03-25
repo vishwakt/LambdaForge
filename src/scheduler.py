@@ -15,9 +15,10 @@ from src.client import (
     get_positions,
     get_latest_quote,
     place_market_order,
+    get_rate_limit_hits,
 )
 from src.config import AppConfig, load_config
-from src.data_fetcher import fetch_daily_bars
+from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
 from src.notifier import Notifier, get_notifier
 from src.strategies import STRATEGIES
 from src.strategies.base import Signal, Action
@@ -100,18 +101,28 @@ class TradingEngine:
             max_positions=self.config.risk.max_open_positions,
         )
 
+        self._notify_rate_limits()
         logger.info("DAILY SCAN COMPLETE")
 
     def _check_exit_signals(self, trading_client, open_positions):
         """Check if any open position should be exited based on strategy."""
+        if not open_positions:
+            return
+
+        symbols = [pos["symbol"] for pos in open_positions]
+        try:
+            all_bars = fetch_daily_bars_batch(
+                symbols, days=self.config.scheduler.days_of_data
+            )
+        except Exception as e:
+            logger.error("Failed to batch fetch exit signal data: %s", e)
+            return
+
         for pos in open_positions:
             symbol = pos["symbol"]
-            try:
-                bars = fetch_daily_bars(
-                    symbol, days=self.config.scheduler.days_of_data
-                )
-            except Exception as e:
-                logger.error("Failed to fetch data for %s: %s", symbol, e)
+            bars = all_bars.get(symbol)
+            if bars is None or bars.empty:
+                logger.error("No bar data for %s, skipping exit check", symbol)
                 continue
 
             for strat_name in self.config.scheduler.strategies:
@@ -132,13 +143,19 @@ class TradingEngine:
 
     def _scan_for_entries(self, trading_client, account_info, open_positions):
         """Scan watchlist for new BUY signals."""
-        for symbol in self.config.scheduler.symbols:
-            try:
-                bars = fetch_daily_bars(
-                    symbol, days=self.config.scheduler.days_of_data
-                )
-            except Exception as e:
-                logger.error("Failed to fetch data for %s: %s", symbol, e)
+        symbols = self.config.scheduler.symbols
+        try:
+            all_bars = fetch_daily_bars_batch(
+                symbols, days=self.config.scheduler.days_of_data
+            )
+        except Exception as e:
+            logger.error("Failed to batch fetch entry signal data: %s", e)
+            return
+
+        for symbol in symbols:
+            bars = all_bars.get(symbol)
+            if bars is None or bars.empty:
+                logger.error("No bar data for %s, skipping entry scan", symbol)
                 continue
 
             for strat_name in self.config.scheduler.strategies:
@@ -332,17 +349,41 @@ class TradingEngine:
             return None
 
     def monitor_stops(self):
-        """Check all open positions — update trailing stops and trigger exits."""
-        logger.info("Checking stop-losses...")
+        """Full monitoring cycle: stop-losses, strategy exits, and new entries.
+
+        Runs every 2 minutes (configurable). Checks:
+        1. Trailing stop-losses on open positions (real-time quotes)
+        2. Strategy-based exit signals on open positions (batched bars)
+        3. New entry signals across the full watchlist (batched bars)
+        """
         trading_client = get_trading_client(paper=self.paper)
         data_client = get_data_client(paper=self.paper)
+        account_info = get_account_info(trading_client)
+        open_positions = get_positions(trading_client)
+
+        # Phase 1: Check trailing stop-losses (real-time quotes)
+        self._check_trailing_stops(trading_client, data_client)
+
+        # Phase 2: Check strategy-based exit signals (batched bars)
+        open_positions = get_positions(trading_client)
+        self._check_exit_signals(trading_client, open_positions)
+
+        # Phase 3: Scan for new entry signals (batched bars)
+        account_info = get_account_info(trading_client)
+        open_positions = get_positions(trading_client)
+        self._scan_for_entries(trading_client, account_info, open_positions)
+
+        self.notifier.flush_trades()
+        self._notify_rate_limits()
+
+    def _check_trailing_stops(self, trading_client, data_client):
+        """Check trailing stop-losses using real-time quotes."""
         open_trades = self.trade_log.get_open_trades()
 
         if not open_trades:
             logger.info("No open trades to monitor.")
             return
 
-        # Group trades by symbol to avoid duplicate position lookups
         positions = get_positions(trading_client)
         pos_map = {p["symbol"]: p for p in positions}
 
@@ -411,7 +452,38 @@ class TradingEngine:
                     "Stop-loss check failed for %s: %s", trade["symbol"], e
                 )
 
-        self.notifier.flush_trades()
+    def _notify_rate_limits(self):
+        """Send an email notification if any API rate limits were hit."""
+        hits = get_rate_limit_hits()
+        if not hits:
+            return
+        lines = [
+            f"WARNING: {len(hits)} API rate limit(s) hit during this run",
+            "",
+        ]
+        for h in hits:
+            lines.append(f"  [{h['timestamp']}] {h['function']}: {h['message']}")
+        lines.append("")
+        lines.append("Consider reducing the symbol list or increasing the monitor interval.")
+
+        message = "\n".join(lines)
+        logger.warning(message)
+
+        # Send via the notifier's underlying publish mechanism
+        if hasattr(self.notifier, "inner"):
+            inner = self.notifier.inner
+        else:
+            inner = self.notifier
+        if hasattr(inner, "_send_html_email"):
+            inner._send_html_email(
+                subject=f"RATE LIMIT WARNING — {len(hits)} hits",
+                plain_text=message,
+            )
+        elif hasattr(inner, "_publish"):
+            inner._publish(
+                subject=f"RATE LIMIT WARNING — {len(hits)} hits",
+                message=message,
+            )
 
     def _fetch_benchmark_closes(self) -> dict:
         """Fetch latest close prices for benchmark indices."""
