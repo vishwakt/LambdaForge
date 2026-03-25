@@ -2,7 +2,7 @@
 
 > **Purpose:** Compressed context document for AI assistants and future developers.
 > Covers architecture, file map, AWS deployment, IAM, CI/CD, and known gotchas.
-> Last updated: 2026-03-24 (end of Milestone 7).
+> Last updated: 2026-03-25 (end of Milestone 7).
 
 ---
 
@@ -63,7 +63,8 @@ stock-trading-v1/
 ├── .dockerignore
 ├── template.yaml            # SAM: 5 Lambda functions + EventBridge + S3 + SNS + IAM
 ├── .github/workflows/
-│   └── deploy.yml           # CI/CD: test → SAM build → SAM deploy
+│   ├── deploy.yml           # CI/CD: test → SAM build → SAM deploy (paper, auto on push)
+│   └── deploy-live.yml      # CI/CD: test → SAM build → SAM deploy (live, manual workflow_dispatch)
 ├── iam-deployer-policy.json # IAM policy for GitHub Actions deployer
 ├── iam-ops-policy.json      # IAM policy for monitoring/operations
 ├── SPEC.md                  # Original specification
@@ -79,19 +80,25 @@ stock-trading-v1/
 ```
 EventBridge (cron) → Lambda → S3 (download trades.db)
                        ↓
-               TradingEngine.run_daily_scan()
+               TradingEngine.run_daily_scan()         (09:30 ET, once)
                  ├── Save daily snapshot
                  ├── Check exits (strategy signals on open positions)
                  ├── Scan entries (strategy signals on watchlist)
                  │     └── RiskManager.check() → approve/reject
                  │           └── place_market_order() via Alpaca
                  │                 └── TradeLog.log_trade()
-                 └── Notifier.notify_daily_summary()
+                 └── BatchingNotifier.flush_trades()
+                       ↓
+               TradingEngine.monitor_stops()          (every 2 min)
+                 ├── Check trailing stops (real-time quotes)
+                 ├── Check exit signals (batched bars, open positions)
+                 ├── Scan entries (batched bars, full 218-symbol watchlist)
+                 └── BatchingNotifier.flush_trades()
                        ↓
                Lambda → S3 (upload trades.db)
 ```
 
-### Four Lambda Functions
+### Five Lambda Functions
 | Function | Schedule | Handler | Purpose |
 |----------|----------|---------|---------|
 | DailyScanFunction | 09:30 ET weekdays (cron 30 14 ? * MON-FRI *) | handler.daily_scan_handler | Full daily scan cycle |
@@ -134,12 +141,12 @@ risk_rejections (id, timestamp, symbol, strategy, action, confidence,
 ## 5. Configuration Hierarchy
 
 Priority (highest to lowest):
-1. **AWS SSM Parameter Store** — `/stock-bot/*` prefix (Lambda runtime, no redeploy needed)
+1. **AWS SSM Parameter Store** — `/stock-bot/*` prefix for paper, `/stock-bot-live/*` for live (Lambda runtime, no redeploy needed)
 2. **Environment variables** — `DB_PATH`, `NOTIFIER_TYPE`, `SNS_TOPIC_ARN`
 3. **config.json** — JSON file at project root
 4. **Code defaults** — in `src/config.py` dataclasses
 
-### SSM Parameters (`/stock-bot/` prefix)
+### SSM Parameters (`/stock-bot/` for paper, `/stock-bot-live/` for live)
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trading_mode` | String | paper | paper or live |
@@ -156,11 +163,7 @@ Priority (highest to lowest):
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
 
-Notification config:
-- `NOTIFIER_TYPE` env var: `"console"` (default local), `"sns"`, or `"console+sns"` (Lambda default)
-- `SNS_TOPIC_ARN` env var: set automatically by SAM template in Lambda
-- SNS subscription: email protocol (no origination identity needed; SMS requires a toll-free number)
-- MultiNotifier wraps multiple notifiers when `+` separator is used
+Notification config: See **Section 19** for full details on the notifier chain, email types, and SES setup.
 
 ---
 
@@ -168,16 +171,35 @@ Notification config:
 
 | Resource | Identifier |
 |----------|------------|
+### Paper Stack (`stock-trading-bot`)
+| Resource | Identifier |
+|----------|------------|
 | CloudFormation Stack | `stock-trading-bot` |
-| Lambda: DailyScan | `stock-trading-bot-DailyScanFunction-TsOJGTTMStSf` |
-| Lambda: MonitorStops | `stock-trading-bot-MonitorStopsFunction-ogDggkNhOhQQ` |
-| Lambda: EodSnapshot | `stock-trading-bot-EodSnapshotFunction-b3fuAvFdFUFW` |
+| Lambda: DailyScan | `stock-trading-bot-DailyScanFunction-*` |
+| Lambda: MonitorStops | `stock-trading-bot-MonitorStopsFunction-*` |
+| Lambda: EodSnapshot | `stock-trading-bot-EodSnapshotFunction-*` |
+| Lambda: WeeklyDigest | `stock-trading-bot-WeeklyDigestFunction-*` |
+| Lambda: KillSwitch | `stock-trading-bot-KillSwitchFunction-*` |
 | S3: Trades DB | `stock-trader-db-042697403670` |
-| IAM: Lambda Role | `stock-trading-bot-TradingBotRole-WOqyrXj8Ea0Z` |
-| ECR: DailyScan | `stocktradingbotca2553c6/dailyscanfunctiond637b57frepo` |
-| ECR: MonitorStops | `stocktradingbotca2553c6/monitorstopsfunctiona370411drepo` |
-| ECR: EodSnapshot | `stocktradingbotca2553c6/eodsnapshotfunction18ab22d1repo` |
-| SNS: Alerts Topic | `stock-trading-bot-TradingAlertsTopic-*` (created by SAM) |
+| SSM Prefix | `/stock-bot/` |
+| SNS: Alerts Topic | `Stock Trading Bot Alerts (paper)` |
+
+### Live Stack (`stock-trading-bot-live`)
+| Resource | Identifier |
+|----------|------------|
+| CloudFormation Stack | `stock-trading-bot-live` |
+| Lambda: DailyScan | `stock-trading-bot-live-DailyScanFunction-*` |
+| Lambda: MonitorStops | `stock-trading-bot-live-MonitorStopsFunction-*` |
+| Lambda: EodSnapshot | `stock-trading-bot-live-EodSnapshotFunction-*` |
+| Lambda: WeeklyDigest | `stock-trading-bot-live-WeeklyDigestFunction-*` |
+| Lambda: KillSwitch | `stock-trading-bot-live-KillSwitchFunction-*` |
+| S3: Trades DB | `stock-trader-db-live-042697403670` |
+| SSM Prefix | `/stock-bot-live/` |
+| SNS: Alerts Topic | `Stock Trading Bot Alerts (live)` |
+
+### Shared Resources
+| Resource | Identifier |
+|----------|------------|
 | SAM Managed Bucket | `aws-sam-cli-managed-default-samclisourcebucket-2engsmriowim` |
 | GitHub OIDC Role | `arn:aws:iam::042697403670:role/github-actions-stock-trader` |
 
@@ -196,9 +218,13 @@ Notification config:
 - `AWS_ROLE_ARN` — `arn:aws:iam::042697403670:role/github-actions-stock-trader`
 - `NOTIFICATION_EMAIL` — email for CloudFormation SNS subscription
 
-**Pipeline (`.github/workflows/deploy.yml`):**
+**Paper pipeline (`.github/workflows/deploy.yml`):**
 1. **Test job** (all pushes + PRs): Install deps → `python -c "from src.config import load_config"`
-2. **Deploy job** (main branch only): OIDC auth → QEMU (ARM) → Buildx → SAM build → SAM deploy
+2. **Deploy job** (main branch only): OIDC auth → QEMU (ARM) → Buildx → SAM build → SAM deploy (`Environment=paper`)
+
+**Live pipeline (`.github/workflows/deploy-live.yml`):**
+1. **Trigger:** `workflow_dispatch` only (manual, requires typing `DEPLOY-LIVE` to confirm)
+2. **Deploy job:** Same build steps, deploys to `stock-trading-bot-live` stack (`Environment=live`)
 
 **Key SAM deploy flags:** `--resolve-s3`, `--resolve-image-repos`, `--capabilities CAPABILITY_IAM`
 
@@ -216,7 +242,7 @@ File: `iam-deployer-policy.json`.
 Scoped read/invoke permissions:
 - CloudWatch Logs: read for `/aws/lambda/stock-trading-bot-*`
 - Lambda: invoke + read for `stock-trading-bot-*` functions
-- S3: read/write for `stock-trader-db-042697403670`
+- S3: read/write for `stock-trader-db-042697403670` and `stock-trader-db-live-042697403670`
 - EventBridge: read-only
 - IAM: read-only
 
@@ -238,6 +264,7 @@ File: `iam-ops-policy.json`.
 | ECR repo names don't match policy | SAM creates lowercase no-hyphen names like `stocktradingbotca2553c6/...` | Use broad `*` in deployer policy |
 | Docker build cache corruption | Stale layer cache on Mac | `docker builder prune -f` |
 | OIDC auth failure | GitHub username was `vishwakt` not `vishwak` | Fixed trust policy condition |
+| Lambda invoke UTF-8 error on macOS | AWS CLI v2 encodes payload as base64 by default | Add `--cli-binary-format raw-in-base64-out` flag |
 
 ---
 
@@ -369,7 +396,37 @@ Python 3.9 (Lambda runtime constraint). Docker ARM64 images (Graviton2 Lambda).
 
 ---
 
-## 15. Kill Switch
+## 15. Alpaca API Rate Limits
+
+**Limits:** Alpaca enforces **200 API calls per minute** across all endpoints.
+
+### How We Stay Under the Limit
+
+| Operation | API Calls | How |
+|-----------|-----------|-----|
+| Fetch bars for 218 symbols | **~3 calls** | `fetch_stock_bars_batch()` chunks 100 symbols per request |
+| Fetch quotes for open positions | 1 per position | `get_latest_quote()` — max 12 positions = 12 calls |
+| Place/check orders | 1 per order | Market orders via `place_market_order()` |
+
+A typical 2-minute monitor cycle: ~3 (bars) + 12 (quotes) + a few orders = **~20 calls**, well under 200/min.
+
+### Rate Limit Handling (`src/client.py`)
+
+- **Detection:** All API calls catch HTTP 429 responses
+- **Retry:** 3 attempts with 2-second backoff per attempt (`_handle_rate_limit()`)
+- **Tracking:** Every 429 hit is logged to `_rate_limit_hits` list with timestamp and function name
+- **Alerting:** After each scan cycle, `_notify_rate_limits()` in `scheduler.py` checks for accumulated hits and sends an email warning if any occurred
+- **Graceful degradation:** If retries are exhausted for a batch of symbols, those symbols return empty bars (no crash)
+
+### If You Hit Rate Limits
+
+1. **Reduce symbol count** in `config.json` → `scheduler.symbols` (fewer symbols = fewer API calls)
+2. **Increase monitor interval** via SSM: `aws ssm put-parameter --name "/stock-bot/monitor_interval" --value "5" --type String --overwrite`
+3. **Increase chunk size** in `fetch_stock_bars_batch()` (default 100, max depends on Alpaca payload limits)
+
+---
+
+## 16. Kill Switch
 
 Emergency halt that stops all trading and liquidates all open positions.
 
@@ -414,7 +471,7 @@ liquidate all positions, and halt trading.
 
 ---
 
-## 16. Testing Lambdas
+## 17. Testing Lambdas
 
 All invoke commands use `--cli-binary-format raw-in-base64-out` to avoid UTF-8 payload encoding issues on macOS.
 
@@ -453,7 +510,7 @@ aws lambda invoke --function-name $(fn WeeklyDigestFunction) \
 
 ---
 
-## 17. Dual-Stack Architecture (Paper vs Live)
+## 18. Dual-Stack Architecture (Paper vs Live)
 
 Paper and live trading run as **independent CloudFormation stacks** from the same template. No shared state.
 
@@ -487,7 +544,7 @@ aws ssm put-parameter --name "/stock-bot-live/alpaca_secret_key" --value "<LIVE_
 
 ### Testing Live Lambdas
 
-Same commands as Section 16, but change the stack name:
+Same commands as Section 17, but change the stack name:
 ```bash
 STACK=stock-trading-bot-live
 fn() { aws cloudformation describe-stack-resources --stack-name $STACK --logical-resource-id $1 --query "StackResources[0].PhysicalResourceId" --output text; }
@@ -532,3 +589,55 @@ The next Lambda invocation (within 2 minutes) will liquidate all positions and s
 ```bash
 sam deploy --config-env live    # Uses [live] section in samconfig.toml
 ```
+
+---
+
+## 19. Notification System
+
+### Notifier Chain
+
+`get_notifier()` builds this chain for Lambda (`NOTIFIER_TYPE=console+sns`):
+
+```
+BatchingNotifier
+  └── MultiNotifier
+        ├── ConsoleNotifier   (logs to CloudWatch)
+        └── SNSNotifier       (SNS plain text + SES HTML emails)
+```
+
+- **BatchingNotifier** buffers trade and rejection notifications, sends consolidated emails on `flush_trades()`
+- **MultiNotifier** fans out to all inner notifiers
+- **ConsoleNotifier** logs to stdout (→ CloudWatch in Lambda)
+- **SNSNotifier** sends via SNS (plain text) or SES (HTML with monospace formatting)
+
+### Email Types
+
+| Email | Trigger | Delivery | Content |
+|-------|---------|----------|---------|
+| **BUY summary** | `flush_trades()` after scan cycle | SES HTML | All buys with strategy scores table per symbol |
+| **SELL summary** | `flush_trades()` after scan cycle | SES HTML | All sells with per-trade P&L + total P&L |
+| **Rejection summary** | `flush_trades()` after scan cycle | SES HTML | All risk-rejected signals with reasons |
+| **Stop-loss alert** | Trailing stop triggered | SNS plain text | Immediate, not batched (one per stop hit) |
+| **Daily summary** | EOD snapshot (15:55 ET) | SES HTML | Equity, P&L, benchmark comparison table, positions with progress bars |
+| **Weekly digest** | Friday EOD (15:55 ET) | SES HTML | Equity curve, strategy breakdown, weekly P&L, benchmark comparison |
+| **Rate limit warning** | End of scan cycle if 429s detected | SES HTML | Number of hits, affected functions, suggestion to reduce symbols |
+
+### SNS vs SES
+
+- **SNS** (`_publish`): plain text email via topic subscription. Used for stop-loss alerts.
+- **SES** (`_send_html_email`): HTML email with `<pre>` monospace styling. Used for all formatted reports and batched trade summaries. Falls back to SNS if SES is not configured.
+
+### SES Setup (one-time)
+
+SES requires a verified email identity before it can send emails:
+```bash
+aws ses verify-email-identity --email-address <your-email@example.com>
+```
+Check your inbox and click the verification link. The same email is used as both sender and recipient (`NOTIFICATION_EMAIL` env var / SAM parameter).
+
+### Configuration
+
+- `NOTIFIER_TYPE` env var: `"console"` (local dev), `"sns"`, or `"console+sns"` (Lambda default)
+- `SNS_TOPIC_ARN` env var: set automatically by SAM template
+- `NOTIFICATION_EMAIL` env var: set via SAM `NotificationEmail` parameter — required for SES HTML emails
+- All notifiers are wrapped in `BatchingNotifier` automatically by `get_notifier()`
