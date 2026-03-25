@@ -163,11 +163,7 @@ Priority (highest to lowest):
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
 
-Notification config:
-- `NOTIFIER_TYPE` env var: `"console"` (default local), `"sns"`, or `"console+sns"` (Lambda default)
-- `SNS_TOPIC_ARN` env var: set automatically by SAM template in Lambda
-- SNS subscription: email protocol (no origination identity needed; SMS requires a toll-free number)
-- MultiNotifier wraps multiple notifiers when `+` separator is used
+Notification config: See **Section 18** for full details on the notifier chain, email types, and SES setup.
 
 ---
 
@@ -563,3 +559,55 @@ The next Lambda invocation (within 2 minutes) will liquidate all positions and s
 ```bash
 sam deploy --config-env live    # Uses [live] section in samconfig.toml
 ```
+
+---
+
+## 18. Notification System
+
+### Notifier Chain
+
+`get_notifier()` builds this chain for Lambda (`NOTIFIER_TYPE=console+sns`):
+
+```
+BatchingNotifier
+  └── MultiNotifier
+        ├── ConsoleNotifier   (logs to CloudWatch)
+        └── SNSNotifier       (SNS plain text + SES HTML emails)
+```
+
+- **BatchingNotifier** buffers trade and rejection notifications, sends consolidated emails on `flush_trades()`
+- **MultiNotifier** fans out to all inner notifiers
+- **ConsoleNotifier** logs to stdout (→ CloudWatch in Lambda)
+- **SNSNotifier** sends via SNS (plain text) or SES (HTML with monospace formatting)
+
+### Email Types
+
+| Email | Trigger | Delivery | Content |
+|-------|---------|----------|---------|
+| **BUY summary** | `flush_trades()` after scan cycle | SES HTML | All buys with strategy scores table per symbol |
+| **SELL summary** | `flush_trades()` after scan cycle | SES HTML | All sells with per-trade P&L + total P&L |
+| **Rejection summary** | `flush_trades()` after scan cycle | SES HTML | All risk-rejected signals with reasons |
+| **Stop-loss alert** | Trailing stop triggered | SNS plain text | Immediate, not batched (one per stop hit) |
+| **Daily summary** | EOD snapshot (15:55 ET) | SES HTML | Equity, P&L, benchmark comparison table, positions with progress bars |
+| **Weekly digest** | Friday EOD (15:55 ET) | SES HTML | Equity curve, strategy breakdown, weekly P&L, benchmark comparison |
+| **Rate limit warning** | End of scan cycle if 429s detected | SES HTML | Number of hits, affected functions, suggestion to reduce symbols |
+
+### SNS vs SES
+
+- **SNS** (`_publish`): plain text email via topic subscription. Used for stop-loss alerts.
+- **SES** (`_send_html_email`): HTML email with `<pre>` monospace styling. Used for all formatted reports and batched trade summaries. Falls back to SNS if SES is not configured.
+
+### SES Setup (one-time)
+
+SES requires a verified email identity before it can send emails:
+```bash
+aws ses verify-email-identity --email-address <your-email@example.com>
+```
+Check your inbox and click the verification link. The same email is used as both sender and recipient (`NOTIFICATION_EMAIL` env var / SAM parameter).
+
+### Configuration
+
+- `NOTIFIER_TYPE` env var: `"console"` (local dev), `"sns"`, or `"console+sns"` (Lambda default)
+- `SNS_TOPIC_ARN` env var: set automatically by SAM template
+- `NOTIFICATION_EMAIL` env var: set via SAM `NotificationEmail` parameter — required for SES HTML emails
+- All notifiers are wrapped in `BatchingNotifier` automatically by `get_notifier()`
