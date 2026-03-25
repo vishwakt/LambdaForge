@@ -493,6 +493,41 @@ STACK=stock-trading-bot-live
 fn() { aws cloudformation describe-stack-resources --stack-name $STACK --logical-resource-id $1 --query "StackResources[0].PhysicalResourceId" --output text; }
 ```
 
+### Safeguarding the Live Stack
+
+After initial deploy with paper keys, engage the kill switch immediately to prevent any trades:
+```bash
+aws ssm put-parameter --name "/stock-bot-live/kill-switch" --value "kill" --type String --overwrite
+```
+
+### Going Live Checklist
+
+When ready to switch from paper keys to real live trading:
+
+```bash
+# 1. Engage kill switch (if not already)
+aws ssm put-parameter --name "/stock-bot-live/kill-switch" --value "kill" --type String --overwrite
+
+# 2. Clear the paper trades database so Lambdas start fresh
+aws s3 rm s3://stock-trader-db-live-042697403670/trades.db
+
+# 3. Update SSM with real live API keys
+aws ssm put-parameter --name "/stock-bot-live/alpaca_api_key" --value "<REAL_LIVE_KEY>" --type SecureString --overwrite
+aws ssm put-parameter --name "/stock-bot-live/alpaca_secret_key" --value "<REAL_LIVE_SECRET>" --type SecureString --overwrite
+aws ssm put-parameter --name "/stock-bot-live/trading_mode" --value "live" --type String --overwrite
+
+# 4. Verify no open positions or pending orders on the live Alpaca account
+
+# 5. Disengage kill switch to start trading
+aws ssm put-parameter --name "/stock-bot-live/kill-switch" --value "alive" --type String --overwrite
+```
+
+To halt live trading at any time:
+```bash
+aws ssm put-parameter --name "/stock-bot-live/kill-switch" --value "kill" --type String --overwrite
+```
+The next Lambda invocation (within 2 minutes) will liquidate all positions and stop trading.
+
 ### Local Deploy (without GitHub Actions)
 ```bash
 sam deploy --config-env live    # Uses [live] section in samconfig.toml
