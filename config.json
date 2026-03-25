@@ -11,7 +11,7 @@
   },
   "scheduler": {
     "run_time": "09:45",
-    "monitor_interval_min": 15,
+    "monitor_interval_min": 2,
     "symbols": [
       "AAPL",
       "MSFT",
