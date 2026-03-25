@@ -76,7 +76,9 @@
       ],
       "Resource": [
         "arn:aws:s3:::stock-trader-db-042697403670",
-        "arn:aws:s3:::stock-trader-db-042697403670/*"
+        "arn:aws:s3:::stock-trader-db-042697403670/*",
+        "arn:aws:s3:::stock-trader-db-live-042697403670",
+        "arn:aws:s3:::stock-trader-db-live-042697403670/*"
       ]
     },
     {
@@ -206,7 +208,10 @@
         "ssm:DeleteParameter",
         "ssm:DescribeParameters"
       ],
-      "Resource": "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot/*"
+      "Resource": [
+        "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot/*",
+        "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot-live/*"
+      ]
     }
   ]
 }
