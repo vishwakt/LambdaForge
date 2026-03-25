@@ -195,6 +195,18 @@
         "sns:SetSubscriptionAttributes"
       ],
       "Resource": "arn:aws:sns:us-east-1:YOUR_AWS_ACCOUNT_ID:stock-trading-bot-*"
+    },
+    {
+      "Sid": "SSMParameterStoreManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:GetParameter",
+        "ssm:GetParametersByPath",
+        "ssm:DeleteParameter",
+        "ssm:DescribeParameters"
+      ],
+      "Resource": "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot/*"
     }
   ]
 }
