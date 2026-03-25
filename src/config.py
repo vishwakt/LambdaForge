@@ -14,8 +14,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class RiskConfig:
     max_position_pct: float = 0.05        # 5% of portfolio per trade
     daily_loss_limit_pct: float = 0.02    # Stop trading if down 2% today
-    max_open_positions: int = 5           # Max simultaneous positions
+    max_open_positions: int = 12          # Max simultaneous positions
     min_confidence: float = 0.5           # Minimum signal confidence to act
+    trailing_stop_pct: float = 0.05       # 5% trailing stop (percentage mode)
+    max_concentration_pct: float = 0.15   # Max 15% of portfolio in one symbol
 
 
 @dataclass
@@ -87,6 +89,15 @@ def load_config(config_path: str | None = None) -> AppConfig:
     env_notifier = os.getenv("NOTIFIER_TYPE")
     if env_notifier:
         config.notifier = env_notifier
+
+    # SSM Parameter Store overrides (highest priority, Lambda only)
+    try:
+        from src.ssm_config import load_ssm_params, apply_ssm_params
+        ssm_params = load_ssm_params()
+        if ssm_params:
+            apply_ssm_params(config, ssm_params)
+    except Exception:
+        pass  # SSM unavailable — use env vars / config.json defaults
 
     if config.trading_mode not in ("paper", "live"):
         raise ValueError(

@@ -71,13 +71,22 @@ class RiskManager:
                     f"{len(open_positions)}/{self.config.max_open_positions}"
                 )
 
-        # Check 4: No duplicate positions
+        # Check 4: Concentration limit (replaces old duplicate-position block)
         if signal.action == Action.BUY:
-            held_symbols = {p["symbol"] for p in open_positions}
-            if signal.symbol in held_symbols:
-                reasons.append(
-                    f"Already holding position in {signal.symbol}"
-                )
+            existing_exposure = sum(
+                p["market_value"] for p in open_positions
+                if p["symbol"] == signal.symbol
+            )
+            if existing_exposure > 0:
+                portfolio_value = account_info["portfolio_value"]
+                max_exposure = portfolio_value * self.config.max_concentration_pct
+                if existing_exposure >= max_exposure:
+                    reasons.append(
+                        f"Concentration limit: {signal.symbol} exposure "
+                        f"${existing_exposure:,.0f} >= "
+                        f"{self.config.max_concentration_pct:.0%} of portfolio "
+                        f"(${max_exposure:,.0f})"
+                    )
 
         # Check 5: Stop-loss required on BUY
         if signal.action == Action.BUY and signal.stop_loss is None:
@@ -88,7 +97,7 @@ class RiskManager:
         position_size = 0.0
         if not reasons and signal.action == Action.BUY:
             qty, position_size = self._calculate_position_size(
-                signal, account_info
+                signal, account_info, open_positions
             )
             if qty == 0:
                 reasons.append(
@@ -128,9 +137,12 @@ class RiskManager:
         return daily_change_pct < -self.config.daily_loss_limit_pct
 
     def _calculate_position_size(
-        self, signal: Signal, account_info: dict
+        self, signal: Signal, account_info: dict,
+        open_positions: list[dict] | None = None,
     ) -> tuple:
         """Calculate number of whole shares based on max position % of portfolio.
+
+        Accounts for existing exposure to the same symbol (pyramiding).
 
         Returns:
             (qty, dollar_amount)
@@ -141,6 +153,17 @@ class RiskManager:
 
         if price is None or price <= 0:
             return 0, 0.0
+
+        # Reduce allocation by existing exposure (concentration cap)
+        if open_positions:
+            existing = sum(
+                p["market_value"] for p in open_positions
+                if p["symbol"] == signal.symbol
+            )
+            if existing > 0:
+                concentration_cap = portfolio_value * self.config.max_concentration_pct
+                remaining = concentration_cap - existing
+                max_dollars = min(max_dollars, max(remaining, 0))
 
         available = min(max_dollars, account_info["cash"])
         qty = int(available // price)
