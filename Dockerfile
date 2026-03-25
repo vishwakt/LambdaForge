@@ -1,10 +1,8 @@
-# syntax=docker/dockerfile:1
 FROM public.ecr.aws/lambda/python:3.9
 
-# Copy requirements and install dependencies (cached layer)
+# Copy requirements and install dependencies (cached as Docker layer)
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY handler.py ${LAMBDA_TASK_ROOT}/
