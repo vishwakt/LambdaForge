@@ -85,3 +85,13 @@ and reporting.
 - AWS SSM Parameter Store: all config (including secrets) managed at runtime, no redeploy needed
 - Enhanced trade notifications: all-strategy confidence scores in table format
 - Weekly performance digest: sent Friday EOD with equity curve, strategy breakdown, benchmark comparison
+
+### Milestone 7 — Batch API, Rate Limits & Operational Improvements
+- Batch API calls: fetch bars for 218 symbols in ~3 API calls (chunked 100/request) instead of 218
+- Rate limit detection: 429 retry with 2s backoff (3 attempts), email alerts on rate limit hits
+- Consolidated trade emails via BatchingNotifier: 3 separate emails per cycle (buys with strategy scores, sells with P&L, rejections with reasons)
+- Kill switch: SSM-driven emergency halt + position liquidation via dedicated Lambda (supports kill/alive/status)
+- Configurable monitor interval: 2-minute default (was 15), SSM-driven, no redeploy
+- Opportunistic scanning: monitor cycle scans full 218-symbol watchlist for buy/sell signals every 2 min
+- SES HTML email formatting: monospace `<pre>` rendering for daily summary and weekly digest
+- Daily scan moved from 09:45 ET to 09:30 ET (market open)
