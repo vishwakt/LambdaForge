@@ -1,14 +1,16 @@
-name: Build & Deploy
+name: Deploy Live
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY-LIVE to confirm live deployment'
+        required: true
+        type: string
 
 env:
   AWS_REGION: us-east-1
-  SAM_STACK_NAME: stock-trading-bot
+  SAM_STACK_NAME: stock-trading-bot-live
 
 jobs:
   test:
@@ -32,11 +34,18 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       id-token: write
       contents: read
     steps:
+      - name: Verify deployment confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "DEPLOY-LIVE" ]; then
+            echo "::error::You must type DEPLOY-LIVE to confirm. Aborting."
+            exit 1
+          fi
+          echo "Live deployment confirmed."
+
       - uses: actions/checkout@v5
 
       - name: Configure AWS credentials
@@ -72,4 +81,4 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }} \
-              Environment=paper
+              Environment=live
