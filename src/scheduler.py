@@ -15,9 +15,10 @@ from src.client import (
     get_positions,
     get_latest_quote,
     place_market_order,
+    get_rate_limit_hits,
 )
 from src.config import AppConfig, load_config
-from src.data_fetcher import fetch_daily_bars
+from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
 from src.notifier import Notifier, get_notifier
 from src.strategies import STRATEGIES
 from src.strategies.base import Signal, Action
@@ -100,18 +101,28 @@ class TradingEngine:
             max_positions=self.config.risk.max_open_positions,
         )
 
+        self._notify_rate_limits()
         logger.info("DAILY SCAN COMPLETE")
 
     def _check_exit_signals(self, trading_client, open_positions):
         """Check if any open position should be exited based on strategy."""
+        if not open_positions:
+            return
+
+        symbols = [pos["symbol"] for pos in open_positions]
+        try:
+            all_bars = fetch_daily_bars_batch(
+                symbols, days=self.config.scheduler.days_of_data
+            )
+        except Exception as e:
+            logger.error("Failed to batch fetch exit signal data: %s", e)
+            return
+
         for pos in open_positions:
             symbol = pos["symbol"]
-            try:
-                bars = fetch_daily_bars(
-                    symbol, days=self.config.scheduler.days_of_data
-                )
-            except Exception as e:
-                logger.error("Failed to fetch data for %s: %s", symbol, e)
+            bars = all_bars.get(symbol)
+            if bars is None or bars.empty:
+                logger.error("No bar data for %s, skipping exit check", symbol)
                 continue
 
             for strat_name in self.config.scheduler.strategies:
@@ -132,13 +143,19 @@ class TradingEngine:
 
     def _scan_for_entries(self, trading_client, account_info, open_positions):
         """Scan watchlist for new BUY signals."""
-        for symbol in self.config.scheduler.symbols:
-            try:
-                bars = fetch_daily_bars(
-                    symbol, days=self.config.scheduler.days_of_data
-                )
-            except Exception as e:
-                logger.error("Failed to fetch data for %s: %s", symbol, e)
+        symbols = self.config.scheduler.symbols
+        try:
+            all_bars = fetch_daily_bars_batch(
+                symbols, days=self.config.scheduler.days_of_data
+            )
+        except Exception as e:
+            logger.error("Failed to batch fetch entry signal data: %s", e)
+            return
+
+        for symbol in symbols:
+            bars = all_bars.get(symbol)
+            if bars is None or bars.empty:
+                logger.error("No bar data for %s, skipping entry scan", symbol)
                 continue
 
             for strat_name in self.config.scheduler.strategies:
@@ -412,6 +429,40 @@ class TradingEngine:
                 )
 
         self.notifier.flush_trades()
+        self._notify_rate_limits()
+
+    def _notify_rate_limits(self):
+        """Send an email notification if any API rate limits were hit."""
+        hits = get_rate_limit_hits()
+        if not hits:
+            return
+        lines = [
+            f"WARNING: {len(hits)} API rate limit(s) hit during this run",
+            "",
+        ]
+        for h in hits:
+            lines.append(f"  [{h['timestamp']}] {h['function']}: {h['message']}")
+        lines.append("")
+        lines.append("Consider reducing the symbol list or increasing the monitor interval.")
+
+        message = "\n".join(lines)
+        logger.warning(message)
+
+        # Send via the notifier's underlying publish mechanism
+        if hasattr(self.notifier, "inner"):
+            inner = self.notifier.inner
+        else:
+            inner = self.notifier
+        if hasattr(inner, "_send_html_email"):
+            inner._send_html_email(
+                subject=f"RATE LIMIT WARNING — {len(hits)} hits",
+                plain_text=message,
+            )
+        elif hasattr(inner, "_publish"):
+            inner._publish(
+                subject=f"RATE LIMIT WARNING — {len(hits)} hits",
+                message=message,
+            )
 
     def _fetch_benchmark_closes(self) -> dict:
         """Fetch latest close prices for benchmark indices."""
