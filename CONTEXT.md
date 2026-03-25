@@ -163,7 +163,7 @@ Priority (highest to lowest):
 
 Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
 
-Notification config: See **Section 18** for full details on the notifier chain, email types, and SES setup.
+Notification config: See **Section 19** for full details on the notifier chain, email types, and SES setup.
 
 ---
 
@@ -396,7 +396,37 @@ Python 3.9 (Lambda runtime constraint). Docker ARM64 images (Graviton2 Lambda).
 
 ---
 
-## 15. Kill Switch
+## 15. Alpaca API Rate Limits
+
+**Limits:** Alpaca enforces **200 API calls per minute** across all endpoints.
+
+### How We Stay Under the Limit
+
+| Operation | API Calls | How |
+|-----------|-----------|-----|
+| Fetch bars for 218 symbols | **~3 calls** | `fetch_stock_bars_batch()` chunks 100 symbols per request |
+| Fetch quotes for open positions | 1 per position | `get_latest_quote()` — max 12 positions = 12 calls |
+| Place/check orders | 1 per order | Market orders via `place_market_order()` |
+
+A typical 2-minute monitor cycle: ~3 (bars) + 12 (quotes) + a few orders = **~20 calls**, well under 200/min.
+
+### Rate Limit Handling (`src/client.py`)
+
+- **Detection:** All API calls catch HTTP 429 responses
+- **Retry:** 3 attempts with 2-second backoff per attempt (`_handle_rate_limit()`)
+- **Tracking:** Every 429 hit is logged to `_rate_limit_hits` list with timestamp and function name
+- **Alerting:** After each scan cycle, `_notify_rate_limits()` in `scheduler.py` checks for accumulated hits and sends an email warning if any occurred
+- **Graceful degradation:** If retries are exhausted for a batch of symbols, those symbols return empty bars (no crash)
+
+### If You Hit Rate Limits
+
+1. **Reduce symbol count** in `config.json` → `scheduler.symbols` (fewer symbols = fewer API calls)
+2. **Increase monitor interval** via SSM: `aws ssm put-parameter --name "/stock-bot/monitor_interval" --value "5" --type String --overwrite`
+3. **Increase chunk size** in `fetch_stock_bars_batch()` (default 100, max depends on Alpaca payload limits)
+
+---
+
+## 16. Kill Switch
 
 Emergency halt that stops all trading and liquidates all open positions.
 
@@ -441,7 +471,7 @@ liquidate all positions, and halt trading.
 
 ---
 
-## 16. Testing Lambdas
+## 17. Testing Lambdas
 
 All invoke commands use `--cli-binary-format raw-in-base64-out` to avoid UTF-8 payload encoding issues on macOS.
 
@@ -480,7 +510,7 @@ aws lambda invoke --function-name $(fn WeeklyDigestFunction) \
 
 ---
 
-## 17. Dual-Stack Architecture (Paper vs Live)
+## 18. Dual-Stack Architecture (Paper vs Live)
 
 Paper and live trading run as **independent CloudFormation stacks** from the same template. No shared state.
 
@@ -514,7 +544,7 @@ aws ssm put-parameter --name "/stock-bot-live/alpaca_secret_key" --value "<LIVE_
 
 ### Testing Live Lambdas
 
-Same commands as Section 16, but change the stack name:
+Same commands as Section 17, but change the stack name:
 ```bash
 STACK=stock-trading-bot-live
 fn() { aws cloudformation describe-stack-resources --stack-name $STACK --logical-resource-id $1 --query "StackResources[0].PhysicalResourceId" --output text; }
@@ -562,7 +592,7 @@ sam deploy --config-env live    # Uses [live] section in samconfig.toml
 
 ---
 
-## 18. Notification System
+## 19. Notification System
 
 ### Notifier Chain
 
