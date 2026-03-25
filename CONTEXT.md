@@ -2,7 +2,7 @@
 
 > **Purpose:** Compressed context document for AI assistants and future developers.
 > Covers architecture, file map, AWS deployment, IAM, CI/CD, and known gotchas.
-> Last updated: 2026-03-24 (end of Milestone 6).
+> Last updated: 2026-03-24 (end of Milestone 7).
 
 ---
 
@@ -28,6 +28,7 @@ Runs on AWS Lambda (EventBridge-scheduled), deploys via SAM + GitHub Actions.
 | M4 — Reporting | ✅ | CLI dashboard, P&L reports, strategy performance analytics |
 | M5 — Notifications | ✅ | AWS SNS email alerts, MultiNotifier for console+sns combo, configurable via env var |
 | M6 — Analytics & Risk | ✅ | Benchmark comparison, trailing stops, pyramiding, SSM config, weekly digest |
+| M7 — Batch API & Ops | ✅ | Batch API (218 symbols in 3 calls), rate limit detection, consolidated emails, kill switch, 2-min opportunistic scanning, SES HTML emails |
 
 ---
 
@@ -44,7 +45,7 @@ stock-trading-v1/
 │   ├── scheduler.py         # TradingEngine: scan → risk → execute → log cycle
 │   ├── risk.py              # RiskManager: 6 pre-trade checks
 │   ├── trade_log.py         # SQLite: trades, daily_snapshots, risk_rejections
-│   ├── notifier.py          # ABC Notifier + ConsoleNotifier + SNSNotifier + MultiNotifier
+│   ├── notifier.py          # ABC Notifier + ConsoleNotifier + SNSNotifier + MultiNotifier + BatchingNotifier
 │   ├── reporter.py          # M4: Portfolio analytics, P&L, strategy performance
 │   ├── ssm_config.py        # M6: AWS SSM Parameter Store loader
 │   ├── weekly_digest.py     # M6: Friday weekly performance report generator
@@ -60,7 +61,7 @@ stock-trading-v1/
 ├── requirements.txt         # alpaca-py, pandas, schedule, boto3, python-dotenv
 ├── Dockerfile               # Lambda container image (python:3.9, ARM64)
 ├── .dockerignore
-├── template.yaml            # SAM: 4 Lambda functions + EventBridge + S3 + SNS + IAM
+├── template.yaml            # SAM: 5 Lambda functions + EventBridge + S3 + SNS + IAM
 ├── .github/workflows/
 │   └── deploy.yml           # CI/CD: test → SAM build → SAM deploy
 ├── iam-deployer-policy.json # IAM policy for GitHub Actions deployer
@@ -97,6 +98,7 @@ EventBridge (cron) → Lambda → S3 (download trades.db)
 | MonitorStopsFunction | Every 2 min (configurable via SSM) | handler.monitor_stops_handler | Trailing stop-loss check |
 | EodSnapshotFunction | 15:55 ET weekdays (cron 55 20 ? * MON-FRI *) | handler.eod_snapshot_handler | End-of-day snapshot + benchmark |
 | WeeklyDigestFunction | Friday 15:55 ET (cron 55 20 ? * FRI *) | handler.weekly_digest_handler | Weekly performance digest |
+| KillSwitchFunction | Manual invoke only | handler.kill_switch_handler | Emergency halt: kill/alive/status |
 
 ### Strategy Engine
 Each strategy receives historical OHLCV bars and returns a `Signal`:
@@ -378,16 +380,25 @@ aws cloudformation describe-stacks --stack-name stock-trading-bot \
   --output text
 ```
 
+**Check status:**
+```bash
+aws lambda invoke --function-name <KillSwitchFunctionName> \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"status"}' /tmp/response.json && cat /tmp/response.json
+```
+
 **Activate (stop trading + liquidate):**
 ```bash
 aws lambda invoke --function-name <KillSwitchFunctionName> \
-  --payload '{"action":"kill"}' /dev/stdout
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"kill"}' /tmp/response.json && cat /tmp/response.json
 ```
 
 **Deactivate (resume trading):**
 ```bash
 aws lambda invoke --function-name <KillSwitchFunctionName> \
-  --payload '{"action":"alive"}' /dev/stdout
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"alive"}' /tmp/response.json && cat /tmp/response.json
 ```
 
 **Manual path (no CLI access):**
@@ -400,3 +411,42 @@ liquidate all positions, and halt trading.
 - If `kill`: cancels all open orders, market-sells all positions, then exits
 - If `alive` (default): normal trading continues
 - The kill switch Lambda sets the SSM parameter AND immediately liquidates
+
+---
+
+## 16. Testing Lambdas
+
+All invoke commands use `--cli-binary-format raw-in-base64-out` to avoid UTF-8 payload encoding issues on macOS.
+
+```bash
+# Helper: get function name from stack
+STACK=stock-trading-bot
+fn() { aws cloudformation describe-stack-resources --stack-name $STACK --logical-resource-id $1 --query "StackResources[0].PhysicalResourceId" --output text; }
+
+# Kill Switch — status / kill / alive
+aws lambda invoke --function-name $(fn KillSwitchFunction) \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"status"}' /tmp/response.json && cat /tmp/response.json
+
+# Monitor Stops (batch API + exit/entry scans + consolidated emails)
+aws lambda invoke --function-name $(fn MonitorStopsFunction) \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{}' /tmp/response.json && cat /tmp/response.json
+
+# Daily Scan (full trading cycle)
+aws lambda invoke --function-name $(fn DailyScanFunction) \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{}' /tmp/response.json && cat /tmp/response.json
+
+# EOD Snapshot (end-of-day summary email)
+aws lambda invoke --function-name $(fn EodSnapshotFunction) \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{}' /tmp/response.json && cat /tmp/response.json
+
+# Weekly Digest (weekly performance report email)
+aws lambda invoke --function-name $(fn WeeklyDigestFunction) \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{}' /tmp/response.json && cat /tmp/response.json
+```
+
+**Note:** Trading Lambdas (DailyScan, MonitorStops) produce meaningful results only during market hours (9:30 AM–4:00 PM ET, Mon–Fri). Outside market hours they run without error but may skip trading logic.
