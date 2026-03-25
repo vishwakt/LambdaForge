@@ -177,6 +177,24 @@
         "events:TagResource"
       ],
       "Resource": "arn:aws:events:us-east-1:042697403670:rule/stock-trading-bot-*"
+    },
+    {
+      "Sid": "SNSTopicManagement",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:TagResource",
+        "sns:UntagResource",
+        "sns:ListTagsForResource",
+        "sns:Subscribe",
+        "sns:Unsubscribe",
+        "sns:GetSubscriptionAttributes",
+        "sns:SetSubscriptionAttributes"
+      ],
+      "Resource": "arn:aws:sns:us-east-1:042697403670:stock-trading-bot-*"
     }
   ]
 }

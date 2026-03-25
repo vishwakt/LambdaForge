@@ -2,7 +2,7 @@
 
 > **Purpose:** Compressed context document for AI assistants and future developers.
 > Covers architecture, file map, AWS deployment, IAM, CI/CD, and known gotchas.
-> Last updated: 2026-03-16 (end of Milestone 5).
+> Last updated: 2026-03-24 (end of Milestone 6).
 
 ---
 
@@ -26,7 +26,8 @@ Runs on AWS Lambda (EventBridge-scheduled), deploys via SAM + GitHub Actions.
 | M3 — Automation & Risk | ✅ | Daily scheduler, 6-rule risk manager, SQLite trade logging, stop-loss monitoring |
 | Pre-M4 — Deploy | ✅ | AWS Lambda (ARM64), SAM template, S3 db persistence, GitHub Actions CI/CD |
 | M4 — Reporting | ✅ | CLI dashboard, P&L reports, strategy performance analytics |
-| M5 — Notifications | ✅ | AWS SNS SMS alerts, MultiNotifier for console+sns combo, configurable via env var |
+| M5 — Notifications | ✅ | AWS SNS email alerts, MultiNotifier for console+sns combo, configurable via env var |
+| M6 — Analytics & Risk | ✅ | Benchmark comparison, trailing stops, pyramiding, SSM config, weekly digest |
 
 ---
 
@@ -45,6 +46,8 @@ stock-trading-v1/
 │   ├── trade_log.py         # SQLite: trades, daily_snapshots, risk_rejections
 │   ├── notifier.py          # ABC Notifier + ConsoleNotifier + SNSNotifier + MultiNotifier
 │   ├── reporter.py          # M4: Portfolio analytics, P&L, strategy performance
+│   ├── ssm_config.py        # M6: AWS SSM Parameter Store loader
+│   ├── weekly_digest.py     # M6: Friday weekly performance report generator
 │   ├── lambda_handlers.py   # Lambda entry points (S3 sync trades.db)
 │   └── strategies/
 │       ├── __init__.py       # STRATEGIES registry dict
@@ -57,7 +60,7 @@ stock-trading-v1/
 ├── requirements.txt         # alpaca-py, pandas, schedule, boto3, python-dotenv
 ├── Dockerfile               # Lambda container image (python:3.9, ARM64)
 ├── .dockerignore
-├── template.yaml            # SAM: 3 Lambda functions + EventBridge + S3 + IAM
+├── template.yaml            # SAM: 4 Lambda functions + EventBridge + S3 + SNS + IAM
 ├── .github/workflows/
 │   └── deploy.yml           # CI/CD: test → SAM build → SAM deploy
 ├── iam-deployer-policy.json # IAM policy for GitHub Actions deployer
@@ -87,12 +90,13 @@ EventBridge (cron) → Lambda → S3 (download trades.db)
                Lambda → S3 (upload trades.db)
 ```
 
-### Three Lambda Functions
+### Four Lambda Functions
 | Function | Schedule | Handler | Purpose |
 |----------|----------|---------|---------|
 | DailyScanFunction | 09:45 ET weekdays (cron 45 14 ? * MON-FRI *) | handler.daily_scan_handler | Full daily scan cycle |
-| MonitorStopsFunction | Every 15 min (rate 15 minutes) | handler.monitor_stops_handler | Check stop-losses |
-| EodSnapshotFunction | 15:55 ET weekdays (cron 55 20 ? * MON-FRI *) | handler.eod_snapshot_handler | End-of-day snapshot |
+| MonitorStopsFunction | Every 15 min (rate 15 minutes) | handler.monitor_stops_handler | Trailing stop-loss check |
+| EodSnapshotFunction | 15:55 ET weekdays (cron 55 20 ? * MON-FRI *) | handler.eod_snapshot_handler | End-of-day snapshot + benchmark |
+| WeeklyDigestFunction | Friday 15:55 ET (cron 55 20 ? * FRI *) | handler.weekly_digest_handler | Weekly performance digest |
 
 ### Strategy Engine
 Each strategy receives historical OHLCV bars and returns a `Signal`:
@@ -101,21 +105,23 @@ Each strategy receives historical OHLCV bars and returns a `Signal`:
 - **Z-Score Mean Reversion** — 50-day rolling Z-score. BUY at Z < -2 (oversold), SELL at Z > +2.
 
 ### Risk Management (6 rules)
-1. Confidence gate (>= 50%)
-2. Daily loss limit (stop if down > 2%)
-3. Max open positions (5)
-4. No duplicate symbols
-5. Stop-loss required on all BUY
-6. Position sizing (5% of portfolio per trade, bounded by cash)
+1. Confidence gate (>= 50%, configurable)
+2. Daily loss limit (stop if down > 2%, configurable)
+3. Max open positions (12, configurable via SSM)
+4. Concentration limit (max 15% of portfolio per symbol, enables pyramiding)
+5. Stop-loss required on all BUY (trailing stop: 5% pct + ATR hybrid)
+6. Position sizing (5% of portfolio per trade, reduced by existing exposure)
 
 ### SQLite Schema
 ```sql
 trades (id, timestamp, symbol, side, qty, order_type, order_id, status,
         fill_price, strategy, signal_confidence, reason, stop_loss,
-        take_profit, parent_trade_id, pnl, created_at)
+        take_profit, parent_trade_id, pnl, created_at,
+        high_water_mark, trailing_stop)  -- M6: trailing stop fields
 
 daily_snapshots (id, date UNIQUE, equity, cash, portfolio_value,
-                 open_positions, daily_pnl, created_at)
+                 open_positions, daily_pnl, created_at,
+                 spy_close, qqq_close, dia_close)  -- M6: benchmark closes
 
 risk_rejections (id, timestamp, symbol, strategy, action, confidence,
                  rejection_reason, created_at)
@@ -126,23 +132,25 @@ risk_rejections (id, timestamp, symbol, strategy, action, confidence,
 ## 5. Configuration Hierarchy
 
 Priority (highest to lowest):
-1. **Environment variables** — `TRADING_MODE`, `DB_PATH`, `ALPACA_API_KEY`, etc.
-2. **config.json** — JSON file at project root
-3. **Code defaults** — in `src/config.py` dataclasses
+1. **AWS SSM Parameter Store** — `/stock-bot/*` prefix (Lambda runtime, no redeploy needed)
+2. **Environment variables** — `DB_PATH`, `NOTIFIER_TYPE`, `SNS_TOPIC_ARN`
+3. **config.json** — JSON file at project root
+4. **Code defaults** — in `src/config.py` dataclasses
 
-Key config values:
-```json
-{
-  "trading_mode": "paper",
-  "risk": { "max_position_pct": 0.05, "daily_loss_limit_pct": 0.02,
-            "max_open_positions": 5, "min_confidence": 0.5 },
-  "scheduler": { "run_time": "09:45", "monitor_interval_min": 15,
-                 "symbols": ["AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","SPY","QQQ","AMD"],
-                 "strategies": ["macd","bollinger","zscore"], "days_of_data": 200 }
-}
-```
+### SSM Parameters (`/stock-bot/` prefix)
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `trading_mode` | String | paper | paper or live |
+| `alpaca_api_key` | SecureString | - | Alpaca API key |
+| `alpaca_secret_key` | SecureString | - | Alpaca secret key |
+| `notification_email` | String | - | Email for alerts |
+| `max_positions` | String | 12 | Max simultaneous positions |
+| `trailing_stop_pct` | String | 0.05 | Trailing stop percentage |
+| `max_concentration` | String | 0.15 | Max % per symbol |
+| `max_daily_loss` | String | 0.02 | Daily loss limit |
+| `min_confidence` | String | 0.5 | Minimum signal confidence |
 
-Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (or mode-specific `_PAPER`/`_LIVE` suffixes).
+Alpaca credentials: `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (from SSM or env vars, mode-specific `_PAPER`/`_LIVE` suffixes for local dev).
 
 Notification config:
 - `NOTIFIER_TYPE` env var: `"console"` (default local), `"sns"`, or `"console+sns"` (Lambda default)
@@ -180,12 +188,9 @@ Notification config:
 
 **GitHub repo:** `vishwakt/stock-trading-v1`
 
-**GitHub Secrets:**
+**GitHub Secrets (reduced — most config moved to SSM):**
 - `AWS_ROLE_ARN` — `arn:aws:iam::042697403670:role/github-actions-stock-trader`
-- `TRADING_MODE` — `paper`
-- `ALPACA_API_KEY` — paper trading key
-- `ALPACA_SECRET_KEY` — paper trading secret
-- `NOTIFICATION_EMAIL` — email address for SNS trade alerts
+- `NOTIFICATION_EMAIL` — email for CloudFormation SNS subscription
 
 **Pipeline (`.github/workflows/deploy.yml`):**
 1. **Test job** (all pushes + PRs): Install deps → `python -c "from src.config import load_config"`
@@ -303,12 +308,12 @@ sam deploy           # Subsequent (uses samconfig.toml)
 3. Register in `src/strategies/__init__.py` STRATEGIES dict
 4. Add name to `config.json` → `scheduler.strategies` list
 
-### Adding Notifications (M5)
+### Adding Notifications (M5/M6)
 1. Create `TelegramNotifier` or `TwilioNotifier` in `src/notifier.py`
-2. Implement 4 abstract methods: `notify_trade`, `notify_stop_triggered`, `notify_daily_summary`, `notify_risk_rejection`
+2. Implement 5 abstract methods: `notify_trade`, `notify_stop_triggered`, `notify_daily_summary`, `notify_risk_rejection`, `notify_weekly_digest`
 3. Register in `get_notifier()` factory function
 4. Set `"notifier": "telegram"` in config.json
-5. Add bot token / API credentials to `.env` and Lambda env vars
+5. Add bot token / API credentials to SSM Parameter Store
 
 ### Adding New Risk Rules
 1. Add check in `RiskManager.check()` method in `src/risk.py`
