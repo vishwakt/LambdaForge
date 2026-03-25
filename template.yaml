@@ -3,21 +3,6 @@ Transform: AWS::Serverless-2016-10-31
 Description: Stock Trading Bot — Automated daily trading via Alpaca API
 
 Parameters:
-  TradingMode:
-    Type: String
-    Default: paper
-    AllowedValues:
-      - paper
-      - live
-    Description: Trading mode (paper or live)
-  AlpacaApiKey:
-    Type: String
-    NoEcho: true
-    Description: Alpaca API key for the selected trading mode
-  AlpacaSecretKey:
-    Type: String
-    NoEcho: true
-    Description: Alpaca secret key for the selected trading mode
   NotificationEmail:
     Type: String
     Default: ""
@@ -34,9 +19,6 @@ Globals:
       - arm64
     Environment:
       Variables:
-        TRADING_MODE: !Ref TradingMode
-        ALPACA_API_KEY: !Ref AlpacaApiKey
-        ALPACA_SECRET_KEY: !Ref AlpacaSecretKey
         TRADES_DB_BUCKET: !Ref TradesDbBucket
         TRADES_DB_KEY: trades.db
         DB_PATH: /tmp/trades.db
@@ -103,6 +85,16 @@ Resources:
                   - sns:Publish
                 Resource:
                   - !Ref TradingAlertsTopic
+        - PolicyName: SSMParameterAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot/*"
 
   # Lambda Function: Daily Scan (runs at 09:45 ET weekdays)
   DailyScanFunction:
@@ -161,6 +153,27 @@ Resources:
           Properties:
             Schedule: cron(55 20 ? * MON-FRI *)  # 15:55 ET = 20:55 UTC
             Description: End-of-day snapshot at 15:55 ET
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  # Lambda Function: Weekly Digest (runs Friday 15:55 ET)
+  WeeklyDigestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - handler.weekly_digest_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 120
+      Events:
+        WeeklySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(55 20 ? * FRI *)  # Friday 15:55 ET = 20:55 UTC
+            Description: Weekly performance digest on Fridays
     Metadata:
       DockerTag: latest
       DockerContext: .
