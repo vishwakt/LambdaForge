@@ -41,6 +41,7 @@ class AppConfig:
     db_path: str = str(PROJECT_ROOT / "trades.db")
     trading_mode: str = "paper"           # "paper" or "live"
     notifier: str = "console"             # "console", "sns", "console+sns"
+    notify_frequency: str = "hourly"       # "realtime", "hourly", "daily"
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -76,6 +77,8 @@ def load_config(config_path: str | None = None) -> AppConfig:
             config.trading_mode = data["trading_mode"]
         if "notifier" in data:
             config.notifier = data["notifier"]
+        if "notify_frequency" in data:
+            config.notify_frequency = data["notify_frequency"]
 
     # Environment variable overrides (useful for Lambda)
     env_mode = os.getenv("TRADING_MODE")
@@ -89,6 +92,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     env_notifier = os.getenv("NOTIFIER_TYPE")
     if env_notifier:
         config.notifier = env_notifier
+
+    env_notify_freq = os.getenv("NOTIFY_FREQUENCY")
+    if env_notify_freq:
+        config.notify_frequency = env_notify_freq
 
     # SSM Parameter Store overrides (highest priority, Lambda only)
     try:

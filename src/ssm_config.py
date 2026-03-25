@@ -24,6 +24,7 @@ _PARAM_MAP = {
     "max_daily_loss":     ("risk", "daily_loss_limit_pct", float),
     "min_confidence":     ("risk", "min_confidence", float),
     "monitor_interval":   ("scheduler", "monitor_interval_min", int),
+    "notify_frequency":   ("app", "notify_frequency", str),
 }
 
 

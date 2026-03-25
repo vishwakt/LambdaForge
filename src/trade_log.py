@@ -499,6 +499,34 @@ class TradeLog:
         finally:
             conn.close()
 
+    def get_trades_since(self, since_iso: str) -> list[dict]:
+        """Get all trades with timestamp >= since_iso (ISO datetime string)."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM trades
+                   WHERE timestamp >= ?
+                   ORDER BY timestamp DESC""",
+                (since_iso,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_rejections_since(self, since_iso: str) -> list[dict]:
+        """Get all risk rejections with timestamp >= since_iso."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM risk_rejections
+                   WHERE timestamp >= ?
+                   ORDER BY timestamp DESC""",
+                (since_iso,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     def get_recent_rejections(self, limit: int = 20) -> list[dict]:
         """Get recent risk rejections across all dates."""
         conn = self._get_conn()
