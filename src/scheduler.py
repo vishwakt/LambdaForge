@@ -87,6 +87,8 @@ class TradingEngine:
             account_info["equity"], daily_pnl, benchmark_closes,
         )
 
+        self.notifier.flush_trades()
+
         self.notifier.notify_daily_summary(
             equity=account_info["equity"],
             daily_pnl=daily_pnl,
@@ -408,6 +410,8 @@ class TradingEngine:
                 logger.error(
                     "Stop-loss check failed for %s: %s", trade["symbol"], e
                 )
+
+        self.notifier.flush_trades()
 
     def _fetch_benchmark_closes(self) -> dict:
         """Fetch latest close prices for benchmark indices."""
