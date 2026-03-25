@@ -349,17 +349,41 @@ class TradingEngine:
             return None
 
     def monitor_stops(self):
-        """Check all open positions — update trailing stops and trigger exits."""
-        logger.info("Checking stop-losses...")
+        """Full monitoring cycle: stop-losses, strategy exits, and new entries.
+
+        Runs every 2 minutes (configurable). Checks:
+        1. Trailing stop-losses on open positions (real-time quotes)
+        2. Strategy-based exit signals on open positions (batched bars)
+        3. New entry signals across the full watchlist (batched bars)
+        """
         trading_client = get_trading_client(paper=self.paper)
         data_client = get_data_client(paper=self.paper)
+        account_info = get_account_info(trading_client)
+        open_positions = get_positions(trading_client)
+
+        # Phase 1: Check trailing stop-losses (real-time quotes)
+        self._check_trailing_stops(trading_client, data_client)
+
+        # Phase 2: Check strategy-based exit signals (batched bars)
+        open_positions = get_positions(trading_client)
+        self._check_exit_signals(trading_client, open_positions)
+
+        # Phase 3: Scan for new entry signals (batched bars)
+        account_info = get_account_info(trading_client)
+        open_positions = get_positions(trading_client)
+        self._scan_for_entries(trading_client, account_info, open_positions)
+
+        self.notifier.flush_trades()
+        self._notify_rate_limits()
+
+    def _check_trailing_stops(self, trading_client, data_client):
+        """Check trailing stop-losses using real-time quotes."""
         open_trades = self.trade_log.get_open_trades()
 
         if not open_trades:
             logger.info("No open trades to monitor.")
             return
 
-        # Group trades by symbol to avoid duplicate position lookups
         positions = get_positions(trading_client)
         pos_map = {p["symbol"]: p for p in positions}
 
@@ -427,9 +451,6 @@ class TradingEngine:
                 logger.error(
                     "Stop-loss check failed for %s: %s", trade["symbol"], e
                 )
-
-        self.notifier.flush_trades()
-        self._notify_rate_limits()
 
     def _notify_rate_limits(self):
         """Send an email notification if any API rate limits were hit."""
