@@ -170,6 +170,14 @@ class TradingEngine:
                 if signal.action != Action.BUY:
                     continue
 
+                # Dedup: skip if same symbol+strategy has an unfilled order
+                if self.trade_log.has_pending_buy(symbol, strat_name):
+                    logger.info(
+                        "DEDUP: Skipping %s/%s — pending buy already exists",
+                        symbol, strat_name,
+                    )
+                    continue
+
                 logger.info(
                     "BUY signal for %s from %s (confidence: %.1f%%): %s",
                     symbol, strat_name, signal.confidence * 100,
