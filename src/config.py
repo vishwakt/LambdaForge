@@ -23,7 +23,7 @@ class RiskConfig:
 @dataclass
 class SchedulerConfig:
     run_time: str = "09:45"               # HH:MM Eastern (after market open)
-    monitor_interval_min: int = 2          # Stop-loss check interval in minutes
+    monitor_interval_min: int = 1          # Stop-loss check interval in minutes
     symbols: list = field(default_factory=lambda: [
         "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
         "META", "NVDA", "SPY", "QQQ", "AMD",
