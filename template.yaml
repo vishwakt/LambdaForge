@@ -6,7 +6,7 @@ Parameters:
   Environment:
     Type: String
     Default: paper
-    AllowedValues: [paper, live]
+    AllowedValues: [paper, live, experimental]
     Description: Trading environment. Determines SSM prefix, S3 bucket, and stack isolation.
   NotificationEmail:
     Type: String
@@ -25,6 +25,9 @@ Mappings:
     live:
       SSMPrefix: "/stock-bot-live/"
       BucketSuffix: "-live"
+    experimental:
+      SSMPrefix: "/stock-bot-experimental/"
+      BucketSuffix: "-experimental"
 
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
