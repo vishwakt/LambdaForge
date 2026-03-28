@@ -6,7 +6,7 @@ Parameters:
   Environment:
     Type: String
     Default: paper
-    AllowedValues: [paper, live]
+    AllowedValues: [paper, live, experimental]
     Description: Trading environment. Determines SSM prefix, S3 bucket, and stack isolation.
   NotificationEmail:
     Type: String
@@ -14,7 +14,7 @@ Parameters:
     Description: Email address for trade alerts. Leave empty to skip email notifications.
   MonitorIntervalMinutes:
     Type: Number
-    Default: 2
+    Default: 1
     Description: Stop-loss and trading monitor interval in minutes (1-60).
 
 Mappings:
@@ -25,6 +25,9 @@ Mappings:
     live:
       SSMPrefix: "/stock-bot-live/"
       BucketSuffix: "-live"
+    experimental:
+      SSMPrefix: "/stock-bot-2/"
+      BucketSuffix: "-2"
 
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
