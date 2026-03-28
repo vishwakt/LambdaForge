@@ -257,6 +257,13 @@ Notification config: See **Section 19** for full details on the notifier chain, 
 
 **GitHub OIDC trust policy condition:** `repo:vishwakt/stock-trading-v1:*`
 
+### Git Workflow Rules
+
+- **NEVER push directly to `main`.** Always create a new branch and open a PR.
+- Each fix or feature gets its own branch, even if it's a one-line change.
+- Hotfixes that need to go out immediately still go through a PR (fast-merge is fine).
+- Branch naming: `milestone-N-description` for features, `fix-description` for bugfixes.
+
 ---
 
 ## 8. IAM Policies
