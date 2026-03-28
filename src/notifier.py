@@ -19,6 +19,26 @@ from datetime import datetime
 
 logger = logging.getLogger("stock-trader")
 
+# ---------------------------------------------------------------------------
+# Environment label for email subjects
+# ---------------------------------------------------------------------------
+
+_ENV_LABELS = {
+    "/stock-bot/": "PAPER",
+    "/stock-bot-live/": "LIVE",
+    "/stock-bot-2/": "BOT-2",
+}
+
+
+def _get_env_label() -> str:
+    """Return environment label like '[PAPER]' based on SSM_PREFIX."""
+    prefix = os.getenv("SSM_PREFIX", "")
+    label = _ENV_LABELS.get(prefix, "")
+    if not label and prefix:
+        # Unknown prefix — use it directly, stripped of slashes
+        label = prefix.strip("/").upper()
+    return f"[{label}] " if label else ""
+
 
 # ---------------------------------------------------------------------------
 # Abstract base
@@ -333,8 +353,9 @@ class SNSNotifier(Notifier):
                 f"{_format_strategy_table(all_strategy_signals)}"
             )
 
+        tag = _get_env_label()
         self._publish(
-            subject=f"{side.upper()} {symbol}",
+            subject=f"{tag}{side.upper()} {symbol}",
             message=(
                 f"{side.upper()} {qty} {symbol} @ ${price:.2f}\n"
                 f"Strategy: {strategy}\n"
@@ -345,9 +366,10 @@ class SNSNotifier(Notifier):
         )
 
     def notify_stop_triggered(self, symbol, current_price, stop_price, pnl):
+        tag = _get_env_label()
         pnl_str = f"P&L: ${pnl:.2f}" if pnl is not None else ""
         self._publish(
-            subject=f"STOP-LOSS {symbol}",
+            subject=f"{tag}STOP-LOSS {symbol}",
             message=(
                 f"STOP-LOSS TRIGGERED: {symbol}\n"
                 f"Price: ${current_price:.2f} (stop: ${stop_price:.2f})\n"
@@ -393,14 +415,16 @@ class SNSNotifier(Notifier):
         sections.append("")
         sections.append(f"Trades today: {trades_today}")
 
+        tag = _get_env_label()
         self._send_html_email(
-            subject="Daily Summary",
+            subject=f"{tag}Daily Summary",
             plain_text="\n".join(sections),
         )
 
     def notify_risk_rejection(self, symbol, strategy, action, reasons):
+        tag = _get_env_label()
         self._publish(
-            subject=f"REJECTED {action} {symbol}",
+            subject=f"{tag}REJECTED {action} {symbol}",
             message=(
                 f"REJECTED: {action} {symbol} [{strategy}]\n"
                 f"Reasons: {'; '.join(reasons)}"
@@ -408,8 +432,9 @@ class SNSNotifier(Notifier):
         )
 
     def notify_weekly_digest(self, digest_text):
+        tag = _get_env_label()
         self._send_html_email(
-            subject="Weekly Performance Digest",
+            subject=f"{tag}Weekly Performance Digest",
             plain_text=digest_text,
         )
 
@@ -557,6 +582,7 @@ class BatchingNotifier(Notifier):
 
     def _send_buy_summary(self, buys: list[dict]):
         """Send one consolidated email for all buy trades."""
+        tag = _get_env_label()
         lines = [
             f"BUY SUMMARY — {len(buys)} position(s) opened",
             "",
@@ -573,7 +599,7 @@ class BatchingNotifier(Notifier):
             lines.append("")
 
         self._send_email(
-            subject=f"BUY — {len(buys)} position(s) opened",
+            subject=f"{tag}BUY — {len(buys)} position(s) opened",
             plain_text="\n".join(lines),
         )
 
@@ -596,8 +622,9 @@ class BatchingNotifier(Notifier):
         if any(t["pnl"] is not None for t in sells):
             lines.append(f"Total P&L: ${total_pnl:+.2f}")
 
+        tag = _get_env_label()
         self._send_email(
-            subject=f"SELL — {len(sells)} position(s) closed (P&L: ${total_pnl:+.2f})",
+            subject=f"{tag}SELL — {len(sells)} position(s) closed (P&L: ${total_pnl:+.2f})",
             plain_text="\n".join(lines),
         )
 
@@ -613,8 +640,9 @@ class BatchingNotifier(Notifier):
             lines.append(f"    Reasons: {'; '.join(r['reasons'])}")
         lines.append("")
 
+        tag = _get_env_label()
         self._send_email(
-            subject=f"REJECTED — {len(rejections)} signal(s)",
+            subject=f"{tag}REJECTED — {len(rejections)} signal(s)",
             plain_text="\n".join(lines),
         )
 
