@@ -78,7 +78,9 @@
         "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID",
         "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID/*",
         "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID/*"
+        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID/*",
+        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID",
+        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID/*"
       ]
     },
     {
@@ -110,7 +112,10 @@
         "ecr:PutLifecyclePolicy",
         "ecr:DeleteLifecyclePolicy"
       ],
-      "Resource": "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*"
+      "Resource": [
+        "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*",
+        "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stock-trading-bot*"
+      ]
     },
     {
       "Sid": "LambdaFunctions",
@@ -210,7 +215,8 @@
       ],
       "Resource": [
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot/*",
-        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-live/*"
+        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-live/*",
+        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-2/*"
       ]
     }
   ]
