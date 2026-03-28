@@ -26,8 +26,8 @@ Mappings:
       SSMPrefix: "/stock-bot-live/"
       BucketSuffix: "-live"
     experimental:
-      SSMPrefix: "/stock-bot-experimental/"
-      BucketSuffix: "-experimental"
+      SSMPrefix: "/stock-bot-2/"
+      BucketSuffix: "-2"
 
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]

@@ -113,13 +113,19 @@ class TradingEngine:
             return
 
         symbols = [pos["symbol"] for pos in open_positions]
+        # Ensure SPY is fetched for relative_strength strategy
+        fetch_symbols = list(symbols)
+        if "SPY" not in fetch_symbols:
+            fetch_symbols.append("SPY")
         try:
             all_bars = fetch_daily_bars_batch(
-                symbols, days=self.config.scheduler.days_of_data
+                fetch_symbols, days=self.config.scheduler.days_of_data
             )
         except Exception as e:
             logger.error("Failed to batch fetch exit signal data: %s", e)
             return
+
+        spy_bars = all_bars.get("SPY")
 
         for pos in open_positions:
             symbol = pos["symbol"]
@@ -132,6 +138,8 @@ class TradingEngine:
                 if strat_name not in STRATEGIES:
                     continue
                 strategy = STRATEGIES[strat_name]()
+                if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
+                    strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
 
                 if signal.action == Action.SELL:
@@ -147,13 +155,19 @@ class TradingEngine:
     def _scan_for_entries(self, trading_client, account_info, open_positions):
         """Scan watchlist for new BUY signals."""
         symbols = self.config.scheduler.symbols
+        # Ensure SPY is fetched for relative_strength strategy
+        fetch_symbols = list(symbols)
+        if "SPY" not in fetch_symbols:
+            fetch_symbols.append("SPY")
         try:
             all_bars = fetch_daily_bars_batch(
-                symbols, days=self.config.scheduler.days_of_data
+                fetch_symbols, days=self.config.scheduler.days_of_data
             )
         except Exception as e:
             logger.error("Failed to batch fetch entry signal data: %s", e)
             return
+
+        spy_bars = all_bars.get("SPY")
 
         for symbol in symbols:
             bars = all_bars.get(symbol)
@@ -165,6 +179,9 @@ class TradingEngine:
                 if strat_name not in STRATEGIES:
                     continue
                 strategy = STRATEGIES[strat_name]()
+                # Inject SPY data for relative strength strategy
+                if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
+                    strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
 
                 if signal.action != Action.BUY:
