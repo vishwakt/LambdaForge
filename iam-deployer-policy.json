@@ -112,7 +112,10 @@
         "ecr:PutLifecyclePolicy",
         "ecr:DeleteLifecyclePolicy"
       ],
-      "Resource": "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*"
+      "Resource": [
+        "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*",
+        "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stock-trading-bot*"
+      ]
     },
     {
       "Sid": "LambdaFunctions",
