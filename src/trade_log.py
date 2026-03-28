@@ -499,6 +499,25 @@ class TradeLog:
         finally:
             conn.close()
 
+    def has_pending_buy(self, symbol: str, strategy: str) -> bool:
+        """Check if there's a pending (submitted, unfilled) buy for this symbol+strategy.
+
+        Used for deduplication — prevents the same signal from creating
+        duplicate orders across scan cycles. Does NOT block pyramiding
+        from different strategies or after an order is filled.
+        """
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) as c FROM trades
+                   WHERE symbol = ? AND strategy = ? AND side = 'buy'
+                   AND status = 'submitted'""",
+                (symbol, strategy),
+            ).fetchone()
+            return row["c"] > 0
+        finally:
+            conn.close()
+
     def get_trades_since(self, since_iso: str) -> list[dict]:
         """Get all trades with timestamp >= since_iso (ISO datetime string)."""
         conn = self._get_conn()
