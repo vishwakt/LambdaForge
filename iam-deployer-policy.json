@@ -78,7 +78,9 @@
         "arn:aws:s3:::stock-trader-db-042697403670",
         "arn:aws:s3:::stock-trader-db-042697403670/*",
         "arn:aws:s3:::stock-trader-db-live-042697403670",
-        "arn:aws:s3:::stock-trader-db-live-042697403670/*"
+        "arn:aws:s3:::stock-trader-db-live-042697403670/*",
+        "arn:aws:s3:::stock-trader-db-2-042697403670",
+        "arn:aws:s3:::stock-trader-db-2-042697403670/*"
       ]
     },
     {
@@ -210,7 +212,8 @@
       ],
       "Resource": [
         "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot/*",
-        "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot-live/*"
+        "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot-live/*",
+        "arn:aws:ssm:us-east-1:042697403670:parameter/stock-bot-2/*"
       ]
     }
   ]
