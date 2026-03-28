@@ -39,6 +39,9 @@ Globals:
     MemorySize: 512
     Architectures:
       - arm64
+    Tags:
+      Project: stock-trading-bot
+      Environment: !Ref Environment
     Environment:
       Variables:
         TRADES_DB_BUCKET: !Ref TradesDbBucket
@@ -60,12 +63,34 @@ Resources:
         - BucketSuffix: !FindInMap [EnvConfig, !Ref Environment, BucketSuffix]
       VersioningConfiguration:
         Status: Enabled
+      Tags:
+        - Key: Project
+          Value: stock-trading-bot
+        - Key: Environment
+          Value: !Ref Environment
 
   # SNS topic for trade alerts
   TradingAlertsTopic:
     Type: AWS::SNS::Topic
     Properties:
       DisplayName: !Sub "Stock Trading Bot Alerts (${Environment})"
+      Tags:
+        - Key: Project
+          Value: stock-trading-bot
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Log Group with 30-day retention
+  TradingBotLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/stock-trading-bot-${Environment}"
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: stock-trading-bot
+        - Key: Environment
+          Value: !Ref Environment
 
   # Email subscription (only created if email address provided)
   TradingAlertsEmailSubscription:

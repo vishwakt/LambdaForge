@@ -213,16 +213,16 @@ Notification config: See **Section 19** for full details on the notifier chain, 
 | SSM Prefix | `/stock-bot-live/` |
 | SNS: Alerts Topic | `Stock Trading Bot Alerts (live)` |
 
-### Experimental Stack (`stock-trading-bot-experimental`)
+### Bot 2 Stack (`stock-trading-bot-2`)
 | Resource | Identifier |
 |----------|------------|
-| CloudFormation Stack | `stock-trading-bot-experimental` |
-| S3: Trades DB | `stock-trader-db-experimental-042697403670` |
-| SSM Prefix | `/stock-bot-experimental/` |
+| CloudFormation Stack | `stock-trading-bot-2` |
+| S3: Trades DB | `stock-trader-db-2-042697403670` |
+| SSM Prefix | `/stock-bot-2/` |
 | SNS: Alerts Topic | `Stock Trading Bot Alerts (experimental)` |
-| Strategies | `rsi_confluence`, `ema_crossover` (set via SSM) |
+| Strategies | `rsi_macd`, `ema_crossover`, `relative_strength` (set via SSM) |
 
-**Purpose:** Runs new strategies (RSI Confluence, EMA Crossover) in parallel with the paper stack to evaluate performance before promoting to production.
+**Purpose:** Runs new strategies (RSI+MACD Confluence, EMA Crossover + ADX, Relative Strength vs SPY) in parallel with the paper stack to evaluate performance before promoting to production.
 
 ### Shared Resources
 | Resource | Identifier |
@@ -559,18 +559,28 @@ aws lambda invoke --function-name $(fn WeeklyDigestFunction) \
 
 **Note:** Trading Lambdas (DailyScan, MonitorStops) produce meaningful results only during market hours (9:30 AM–4:00 PM ET, Mon–Fri). Outside market hours they run without error but may skip trading logic.
 
+### Automated Test Script
+
+Test all Lambdas for any stack with one command:
+
+```bash
+./scripts/test-lambdas.sh                       # Paper stack (default)
+./scripts/test-lambdas.sh stock-trading-bot-2    # Bot 2 stack
+./scripts/test-lambdas.sh stock-trading-bot-live # Live stack
+```
+
 ---
 
 ## 18. Dual-Stack Architecture (Paper vs Live)
 
-Paper and live trading run as **independent CloudFormation stacks** from the same template. No shared state.
+Paper, live, and Bot 2 run as **independent CloudFormation stacks** from the same template. No shared state.
 
-| | Paper | Live |
-|---|---|---|
-| Stack name | `stock-trading-bot` | `stock-trading-bot-live` |
-| SSM prefix | `/stock-bot/` | `/stock-bot-live/` |
-| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` |
-| SNS topic | `Stock Trading Bot Alerts (paper)` | `Stock Trading Bot Alerts (live)` |
+| | Paper | Live | Bot 2 |
+|---|---|---|---|
+| Stack name | `stock-trading-bot` | `stock-trading-bot-live` | `stock-trading-bot-2` |
+| SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` |
+| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` |
+| SNS topic | `Stock Trading Bot Alerts (paper)` | `Stock Trading Bot Alerts (live)` | `Stock Trading Bot Alerts (experimental)` |
 | Deploy trigger | Push to `main` | Manual `workflow_dispatch` (type `DEPLOY-LIVE`) |
 | Kill switch | `/stock-bot/kill-switch` | `/stock-bot-live/kill-switch` |
 | Workflow file | `.github/workflows/deploy.yml` | `.github/workflows/deploy-live.yml` |
