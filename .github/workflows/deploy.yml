@@ -56,6 +56,22 @@ jobs:
         with:
           driver: docker
 
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repo if needed
+        run: |
+          aws ecr describe-repositories --repository-names stock-trading-bot 2>/dev/null || \
+          aws ecr create-repository --repository-name stock-trading-bot
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE_URI="${{ steps.ecr-login.outputs.registry }}/stock-trading-bot:latest"
+          docker buildx build --platform linux/arm64 -t "$IMAGE_URI" --load .
+          docker push "$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
 
@@ -69,7 +85,7 @@ jobs:
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --resolve-s3 \
-            --resolve-image-repos \
+            --image-repository ${{ steps.ecr-login.outputs.registry }}/stock-trading-bot \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }} \
