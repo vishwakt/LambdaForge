@@ -275,6 +275,20 @@ Scoped read/invoke permissions:
 
 File: `iam-ops-policy.json`.
 
+### Adding a New Stack (IAM checklist)
+
+When adding a new stack (e.g. `stock-trading-bot-2`), update `iam-deployer-policy.json` AND the AWS Console:
+
+1. **S3TradesDbBucket** — add the new bucket ARN: `arn:aws:s3:::stock-trader-db-<suffix>-YOUR_AWS_ACCOUNT_ID`
+2. **SSMParameterStoreManagement** — add the new prefix: `arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-<suffix>/*`
+3. **Apply in AWS Console** — IAM → Users → `stock-trader-deployer` → Permissions → Edit inline policy → paste full JSON from `iam-deployer-policy.json`
+
+**Common SSM gotchas:**
+- `AccessDeniedException` right after policy update → IAM propagation delay (wait 10-30 seconds, retry)
+- `ParameterAlreadyExists` → add `--overwrite` flag
+- `AccessDeniedException` on `SecureString` type → may need KMS permissions (not needed if using default `aws/ssm` key)
+- Always update BOTH `iam-deployer-policy.json` (codebase) AND the AWS Console (runtime) — the file is reference only, not auto-applied
+
 ---
 
 ## 9. Known Gotchas & Solutions
@@ -290,6 +304,9 @@ File: `iam-ops-policy.json`.
 | SAM deploy missing bucket | Template artifacts need S3 storage | Added `--resolve-s3` flag |
 | ECR repo names don't match policy | SAM creates lowercase no-hyphen names like `stocktradingbotca2553c6/...` | Use broad `*` in deployer policy |
 | Docker build cache corruption | Stale layer cache on Mac | `docker builder prune -f` |
+| SSM `AccessDeniedException` for new stack | Deployer IAM policy missing new SSM prefix | Add `parameter/stock-bot-<suffix>/*` to `iam-deployer-policy.json` AND AWS Console |
+| SSM `ParameterAlreadyExists` | Parameter was created on a previous attempt | Add `--overwrite` flag to `aws ssm put-parameter` |
+| SSM `AccessDeniedException` right after policy update | IAM propagation delay (10-30s) | Wait and retry |
 | OIDC auth failure | GitHub username was `vishwakt` not `vishwak` | Fixed trust policy condition |
 | Lambda invoke UTF-8 error on macOS | AWS CLI v2 encodes payload as base64 by default | Add `--cli-binary-format raw-in-base64-out` flag |
 
