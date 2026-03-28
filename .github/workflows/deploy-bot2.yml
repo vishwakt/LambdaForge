@@ -1,16 +1,14 @@
-name: Deploy Experimental
+name: Build & Deploy Bot 2
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirmation:
-        description: 'Type DEPLOY-EXPERIMENTAL to confirm'
-        required: true
-        type: string
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 env:
   AWS_REGION: us-east-1
-  SAM_STACK_NAME: stock-trading-bot-experimental
+  SAM_STACK_NAME: stock-trading-bot-2
 
 jobs:
   test:
@@ -35,18 +33,11 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       id-token: write
       contents: read
     steps:
-      - name: Verify deployment confirmation
-        run: |
-          if [ "${{ github.event.inputs.confirmation }}" != "DEPLOY-EXPERIMENTAL" ]; then
-            echo "::error::You must type DEPLOY-EXPERIMENTAL to confirm. Aborting."
-            exit 1
-          fi
-          echo "Experimental deployment confirmed."
-
       - uses: actions/checkout@v5
 
       - name: Configure AWS credentials
