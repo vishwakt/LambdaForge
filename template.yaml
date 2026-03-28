@@ -171,8 +171,8 @@ Resources:
         MonitorSchedule:
           Type: Schedule
           Properties:
-            Schedule: !Sub "rate(${MonitorIntervalMinutes} minutes)"
-            Description: !Sub "Stop-loss check every ${MonitorIntervalMinutes} minutes"
+            Schedule: "rate(1 minute)"
+            Description: "Stop-loss check every 1 minute"
     Metadata:
       DockerTag: latest
       DockerContext: .
