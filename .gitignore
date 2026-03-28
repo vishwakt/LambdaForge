@@ -26,3 +26,4 @@ samconfig.toml
 # IDE
 .idea/
 .vscode/
+*.code-workspace
