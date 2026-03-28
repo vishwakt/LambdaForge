@@ -1,7 +1,12 @@
 """Market hours detection for US equities.
 
 Uses zoneinfo (stdlib Python 3.9+) for timezone handling.
-Does NOT check market holidays — Alpaca will reject orders on closed days.
+
+NOTE: Does NOT check market holidays (Christmas, Thanksgiving, etc.) or
+half-trading days (early closes at 1 PM ET). This is intentional — Alpaca's
+API rejects orders when the market is closed, so the bot will harmlessly
+no-op on holidays. Adding a holiday calendar (e.g. exchange_calendars package)
+is a future enhancement if the wasted Lambda invocations become a concern.
 """
 
 from __future__ import annotations
