@@ -29,6 +29,7 @@ Runs on AWS Lambda (EventBridge-scheduled), deploys via SAM + GitHub Actions.
 | M5 — Notifications | ✅ | AWS SNS email alerts, MultiNotifier for console+sns combo, configurable via env var |
 | M6 — Analytics & Risk | ✅ | Benchmark comparison, trailing stops, pyramiding, SSM config, weekly digest |
 | M7 — Batch API & Ops | ✅ | Batch API (218 symbols in 3 calls), rate limit detection, consolidated emails, kill switch, 2-min opportunistic scanning, SES HTML emails |
+| M8 — Reliability & New Strategies | ✅ | Market hours guard, buy deduplication, 1-min polling, pytest CI, RSI Confluence strategy, EMA Crossover strategy, experimental stack |
 
 ---
 
@@ -49,22 +50,34 @@ stock-trading-v1/
 │   ├── reporter.py          # M4: Portfolio analytics, P&L, strategy performance
 │   ├── ssm_config.py        # M6: AWS SSM Parameter Store loader
 │   ├── weekly_digest.py     # M6: Friday weekly performance report generator
+│   ├── market_hours.py      # M8: Market hours guard (ET timezone-aware)
 │   ├── lambda_handlers.py   # Lambda entry points (S3 sync trades.db)
 │   └── strategies/
 │       ├── __init__.py       # STRATEGIES registry dict
 │       ├── base.py           # Strategy ABC, Signal dataclass, Action enum
 │       ├── macd.py           # MACD crossover (12/26 EMA, 9 signal)
 │       ├── bollinger.py      # Bollinger Squeeze breakout
-│       └── mean_reversion.py # Z-Score mean reversion (50-day)
+│       ├── mean_reversion.py # Z-Score mean reversion (50-day)
+│       ├── rsi_confluence.py # M8: RSI + trend + volume confluence
+│       └── ema_crossover.py  # M8: Dual EMA crossover + ADX trend filter
+├── tests/
+│   ├── conftest.py           # Shared fixtures (tmp_trade_log, sample_bars)
+│   ├── test_market_hours.py  # 13 tests: market hours guard
+│   ├── test_buy_dedup.py     # 7 tests: buy deduplication
+│   ├── test_config.py        # 5 tests: config defaults
+│   ├── test_rsi_confluence.py # 7 tests: RSI strategy
+│   └── test_ema_crossover.py # 7 tests: EMA strategy
 ├── handler.py               # Top-level Lambda wrapper (re-exports from src/)
 ├── config.json              # Default config (risk params, symbols, strategies)
-├── requirements.txt         # alpaca-py, pandas, schedule, boto3, python-dotenv
+├── requirements.txt         # alpaca-py, pandas, schedule, boto3, python-dotenv, tzdata
+├── requirements-dev.txt     # pytest, pytest-cov (CI + local dev)
 ├── Dockerfile               # Lambda container image (python:3.9, ARM64)
 ├── .dockerignore
-├── template.yaml            # SAM: 5 Lambda functions + EventBridge + S3 + SNS + IAM
+├── template.yaml            # SAM: 7 Lambda functions + EventBridge + S3 + SNS + IAM
 ├── .github/workflows/
-│   ├── deploy.yml           # CI/CD: test → SAM build → SAM deploy (paper, auto on push)
-│   └── deploy-live.yml      # CI/CD: test → SAM build → SAM deploy (live, manual workflow_dispatch)
+│   ├── deploy.yml           # CI/CD: pytest → SAM build → SAM deploy (paper, auto on push)
+│   ├── deploy-live.yml      # CI/CD: pytest → SAM build → SAM deploy (live, manual)
+│   └── deploy-experimental.yml # CI/CD: pytest → SAM build → SAM deploy (experimental, manual)
 ├── iam-deployer-policy.json # IAM policy for GitHub Actions deployer
 ├── iam-ops-policy.json      # IAM policy for monitoring/operations
 ├── SPEC.md                  # Original specification
@@ -199,6 +212,17 @@ Notification config: See **Section 19** for full details on the notifier chain, 
 | S3: Trades DB | `stock-trader-db-live-042697403670` |
 | SSM Prefix | `/stock-bot-live/` |
 | SNS: Alerts Topic | `Stock Trading Bot Alerts (live)` |
+
+### Experimental Stack (`stock-trading-bot-experimental`)
+| Resource | Identifier |
+|----------|------------|
+| CloudFormation Stack | `stock-trading-bot-experimental` |
+| S3: Trades DB | `stock-trader-db-experimental-042697403670` |
+| SSM Prefix | `/stock-bot-experimental/` |
+| SNS: Alerts Topic | `Stock Trading Bot Alerts (experimental)` |
+| Strategies | `rsi_confluence`, `ema_crossover` (set via SSM) |
+
+**Purpose:** Runs new strategies (RSI Confluence, EMA Crossover) in parallel with the paper stack to evaluate performance before promoting to production.
 
 ### Shared Resources
 | Resource | Identifier |

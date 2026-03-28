@@ -17,6 +17,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from src.config import load_config
+from src.market_hours import is_market_open
 from src.scheduler import TradingEngine
 from src.ssm_config import get_ssm_prefix
 
@@ -149,7 +150,10 @@ def _check_and_enforce_kill_switch() -> bool:
 
 
 def daily_scan_handler(event, context):
-    """EventBridge trigger: daily market scan at 09:45 ET."""
+    """EventBridge trigger: daily market scan at 09:30 ET."""
+    if not is_market_open():
+        logger.info("Market closed — skipping daily scan")
+        return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
         return {"statusCode": 200, "body": "Kill switch active — liquidated"}
     engine = _get_engine()
@@ -162,6 +166,9 @@ def daily_scan_handler(event, context):
 
 def monitor_stops_handler(event, context):
     """EventBridge trigger: stop-loss check every N min during market hours."""
+    if not is_market_open():
+        logger.info("Market closed — skipping monitor")
+        return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
         return {"statusCode": 200, "body": "Kill switch active — liquidated"}
     engine = _get_engine()
