@@ -31,6 +31,7 @@ Mappings:
 
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
+  IsSingleMinute: !Equals [!Ref MonitorIntervalMinutes, 1]
 
 Globals:
   Function:
@@ -171,8 +172,11 @@ Resources:
         MonitorSchedule:
           Type: Schedule
           Properties:
-            Schedule: "rate(1 minute)"
-            Description: "Stop-loss check every 1 minute"
+            Schedule: !If
+              - IsSingleMinute
+              - "rate(1 minute)"
+              - !Sub "rate(${MonitorIntervalMinutes} minutes)"
+            Description: !Sub "Stop-loss check every ${MonitorIntervalMinutes} minute(s)"
     Metadata:
       DockerTag: latest
       DockerContext: .
