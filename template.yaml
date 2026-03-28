@@ -80,18 +80,6 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # CloudWatch Log Group with 30-day retention
-  TradingBotLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/stock-trading-bot-${Environment}"
-      RetentionInDays: 30
-      Tags:
-        - Key: Project
-          Value: stock-trading-bot
-        - Key: Environment
-          Value: !Ref Environment
-
   # Email subscription (only created if email address provided)
   TradingAlertsEmailSubscription:
     Type: AWS::SNS::Subscription
