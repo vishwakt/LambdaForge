@@ -204,6 +204,18 @@
       "Resource": "arn:aws:sns:us-east-1:YOUR_AWS_ACCOUNT_ID:stock-trading-bot-*"
     },
     {
+      "Sid": "CloudWatchLogsDescribe",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsRetention",
+      "Effect": "Allow",
+      "Action": "logs:PutRetentionPolicy",
+      "Resource": "arn:aws:logs:us-east-1:YOUR_AWS_ACCOUNT_ID:log-group:/aws/lambda/stock-trading-bot*"
+    },
+    {
       "Sid": "SSMParameterStoreManagement",
       "Effect": "Allow",
       "Action": [
