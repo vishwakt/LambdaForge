@@ -4,7 +4,7 @@
 
 **Serverless algorithmic trading — forged on AWS Lambda.**
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/LambdaForge/actions/workflows/deploy.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/LambdaForge/actions)
+[![CI](https://github.com/vishwakt/LambdaForge/actions/workflows/deploy.yml/badge.svg)](https://github.com/vishwakt/LambdaForge/actions)
 [![Python](https://img.shields.io/badge/python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/serverless/sam/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
@@ -107,7 +107,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/LambdaForge.git
+git clone https://github.com/vishwakt/LambdaForge.git
 cd LambdaForge
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
