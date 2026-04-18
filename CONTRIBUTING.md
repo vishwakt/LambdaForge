@@ -7,7 +7,7 @@ Thank you for your interest in contributing. This document covers how to set up 
 ## Getting Started
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/LambdaForge.git
+git clone https://github.com/vishwakt/LambdaForge.git
 cd LambdaForge
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -187,4 +187,4 @@ If you want to add a notification channel (Telegram, Slack, SMS, etc.):
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/YOUR_GITHUB_USERNAME/LambdaForge/discussions) or file an issue with the `question` label.
+Open a [GitHub Discussion](https://github.com/vishwakt/LambdaForge/discussions) or file an issue with the `question` label.
