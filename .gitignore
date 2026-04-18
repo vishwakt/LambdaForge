@@ -27,3 +27,8 @@ samconfig.toml
 .idea/
 .vscode/
 *.code-workspace
+
+# Personal / private ops files (keep locally, never commit)
+CONTEXT.md
+iam-deployer-policy.json
+iam-ops-policy.json

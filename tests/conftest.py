@@ -47,7 +47,7 @@ def sample_bars():
         volume = rng.randint(100_000, 10_000_000, n).astype(float)
         vwap = (high + low + close) / 3
 
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=n, freq="B")
+        dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n, freq="D")
 
         return pd.DataFrame({
             "open": open_,

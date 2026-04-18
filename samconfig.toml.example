@@ -1,0 +1,39 @@
+# SAM CLI deployment configuration template.
+# Copy this file to samconfig.toml and fill in your values.
+# samconfig.toml is gitignored — never commit it (it contains your account ID and ECR URLs).
+#
+# First-time setup:
+#   sam deploy --guided        (generates samconfig.toml interactively)
+#
+# Subsequent deploys:
+#   sam deploy                 (uses samconfig.toml)
+#   sam deploy --config-env live  (deploys the live stack)
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "stock-trading-bot"
+resolve_s3 = true
+s3_prefix = "stock-trading-bot"
+region = "us-east-1"                        # Change if you use a different region
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "TradingMode=\"paper\" Environment=\"paper\""
+# image_repositories is auto-populated by `sam deploy --guided` or `--resolve-image-repos`.
+# It will look like:
+# image_repositories = ["DailyScanFunction=YOUR_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/YOUR_REPO/..."]
+# Leave this blank and let SAM populate it on first deploy.
+
+[default.global.parameters]
+region = "us-east-1"
+
+[live.deploy.parameters]
+stack_name = "stock-trading-bot-live"
+resolve_s3 = true
+s3_prefix = "stock-trading-bot-live"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "Environment=\"live\""
