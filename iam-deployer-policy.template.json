@@ -1,4 +1,9 @@
 {
+  "_instructions": [
+    "Copy this file to iam-deployer-policy.json and replace all YOUR_AWS_ACCOUNT_ID",
+    "placeholders with your 12-digit AWS account ID before applying.",
+    "Apply via: IAM → Users → <deployer-user> → Permissions → Add inline policy → JSON."
+  ],
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -206,13 +211,21 @@
     {
       "Sid": "CloudWatchLogsDescribe",
       "Effect": "Allow",
-      "Action": "logs:DescribeLogGroups",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "CloudWatchLogsRetention",
       "Effect": "Allow",
-      "Action": "logs:PutRetentionPolicy",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagLogGroup"
+      ],
       "Resource": "arn:aws:logs:us-east-1:YOUR_AWS_ACCOUNT_ID:log-group:/aws/lambda/stock-trading-bot*"
     },
     {

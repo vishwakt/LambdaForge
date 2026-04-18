@@ -1,4 +1,10 @@
 {
+  "_instructions": [
+    "Copy this file to iam-ops-policy.json and replace all YOUR_AWS_ACCOUNT_ID",
+    "placeholders with your 12-digit AWS account ID before applying.",
+    "Attach to an IAM user or role used for day-to-day monitoring and operations",
+    "(not the CI/CD deployer). Grants read + invoke access only — no deploy permissions."
+  ],
   "Version": "2012-10-17",
   "Statement": [
     {
