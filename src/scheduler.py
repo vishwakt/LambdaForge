@@ -9,20 +9,20 @@ from datetime import datetime
 import schedule
 
 from src.client import (
-    get_trading_client,
-    get_data_client,
     get_account_info,
-    get_positions,
+    get_data_client,
     get_latest_quote,
-    place_market_order,
+    get_positions,
     get_rate_limit_hits,
+    get_trading_client,
+    place_market_order,
 )
 from src.config import AppConfig, load_config
 from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
-from src.notifier import Notifier, get_notifier
-from src.strategies import STRATEGIES
-from src.strategies.base import Signal, Action
+from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
+from src.strategies import STRATEGIES
+from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
 
 logger = logging.getLogger("stock-trader")
@@ -82,13 +82,17 @@ class TradingEngine:
         daily_pnl = None
         if prev:
             daily_pnl = account_info["equity"] - prev["equity"]
-        trades_today = len(self.trade_log.get_trades(
-            since=datetime.now().strftime("%Y-%m-%d"), limit=100
-        ))
+        trades_today = len(
+            self.trade_log.get_trades(
+                since=datetime.now().strftime("%Y-%m-%d"), limit=100
+            )
+        )
 
         benchmark_closes = self._fetch_benchmark_closes()
         benchmark_data = self._build_benchmark_data(
-            account_info["equity"], daily_pnl, benchmark_closes,
+            account_info["equity"],
+            daily_pnl,
+            benchmark_closes,
         )
 
         self.notifier.flush_trades()
@@ -145,11 +149,11 @@ class TradingEngine:
                 if signal.action == Action.SELL:
                     logger.info(
                         "EXIT signal for %s from %s: %s",
-                        symbol, strat_name, signal.reason,
+                        symbol,
+                        strat_name,
+                        signal.reason,
                     )
-                    self._execute_exit(
-                        trading_client, pos, signal, strat_name
-                    )
+                    self._execute_exit(trading_client, pos, signal, strat_name)
                     break
 
     def _scan_for_entries(self, trading_client, account_info, open_positions):
@@ -191,22 +195,23 @@ class TradingEngine:
                 if self.trade_log.has_pending_buy(symbol, strat_name):
                     logger.info(
                         "DEDUP: Skipping %s/%s — pending buy already exists",
-                        symbol, strat_name,
+                        symbol,
+                        strat_name,
                     )
                     continue
 
                 logger.info(
                     "BUY signal for %s from %s (confidence: %.1f%%): %s",
-                    symbol, strat_name, signal.confidence * 100,
+                    symbol,
+                    strat_name,
+                    signal.confidence * 100,
                     signal.reason,
                 )
 
                 account_info = get_account_info(trading_client)
                 open_positions = get_positions(trading_client)
 
-                result = self.risk_manager.check(
-                    signal, account_info, open_positions
-                )
+                result = self.risk_manager.check(signal, account_info, open_positions)
 
                 if result.verdict == RiskVerdict.REJECTED:
                     self.trade_log.log_risk_rejection(
@@ -217,7 +222,9 @@ class TradingEngine:
                         rejection_reason="; ".join(result.rejection_reasons),
                     )
                     self.notifier.notify_risk_rejection(
-                        symbol, strat_name, signal.action.value,
+                        symbol,
+                        strat_name,
+                        signal.action.value,
                         result.rejection_reasons,
                     )
                     continue
@@ -268,13 +275,15 @@ class TradingEngine:
                         continue
                     try:
                         sig = STRATEGIES[sn]().generate_signal(signal.symbol, bars)
-                        all_strategy_signals.append({
-                            "strategy": sn,
-                            "action": sig.action.value,
-                            "confidence": sig.confidence,
-                            "stop_loss": sig.stop_loss,
-                            "sell_signal": sig.action == Action.SELL,
-                        })
+                        all_strategy_signals.append(
+                            {
+                                "strategy": sn,
+                                "action": sig.action.value,
+                                "confidence": sig.confidence,
+                                "stop_loss": sig.stop_loss,
+                                "sell_signal": sig.action == Action.SELL,
+                            }
+                        )
                     except Exception:
                         pass
 
@@ -298,13 +307,12 @@ class TradingEngine:
         """
         qty = int(position["qty"])
         try:
-            order = place_market_order(
-                trading_client, signal.symbol, qty, "sell"
-            )
+            order = place_market_order(trading_client, signal.symbol, qty, "sell")
 
             exit_price = position["current_price"]
             open_trades = [
-                t for t in self.trade_log.get_open_trades()
+                t
+                for t in self.trade_log.get_open_trades()
                 if t["symbol"] == signal.symbol
             ]
 
@@ -443,15 +451,15 @@ class TradingEngine:
                 new_trailing = max(new_trailing, current_trailing)
 
                 # Persist updated trailing stop
-                self.trade_log.update_trailing_stop(
-                    trade["id"], new_trailing, new_hwm
-                )
+                self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
 
                 # --- Check if stop is triggered ---
                 if current_price <= new_trailing:
                     logger.warning(
                         "TRAILING STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
-                        trade["symbol"], current_price, new_trailing,
+                        trade["symbol"],
+                        current_price,
+                        new_trailing,
                     )
                     pos = pos_map.get(trade["symbol"])
                     if pos:
@@ -460,12 +468,15 @@ class TradingEngine:
                             action=Action.SELL,
                             confidence=1.0,
                             reason=f"Trailing stop triggered at ${current_price:.2f} "
-                                   f"(stop: ${new_trailing:.2f})",
+                            f"(stop: ${new_trailing:.2f})",
                             entry_price=current_price,
                         )
                         pnl = (current_price - pos["avg_entry_price"]) * int(pos["qty"])
                         self.notifier.notify_stop_triggered(
-                            trade["symbol"], current_price, new_trailing, pnl,
+                            trade["symbol"],
+                            current_price,
+                            new_trailing,
+                            pnl,
                         )
                         self._execute_exit(
                             trading_client, pos, exit_signal, trade["strategy"]
@@ -473,12 +484,13 @@ class TradingEngine:
                 else:
                     logger.info(
                         "  %s: $%.2f (trailing stop: $%.2f, HWM: $%.2f) — OK",
-                        trade["symbol"], current_price, new_trailing, new_hwm,
+                        trade["symbol"],
+                        current_price,
+                        new_trailing,
+                        new_hwm,
                     )
             except Exception as e:
-                logger.error(
-                    "Stop-loss check failed for %s: %s", trade["symbol"], e
-                )
+                logger.error("Stop-loss check failed for %s: %s", trade["symbol"], e)
 
     def _notify_rate_limits(self):
         """Send an email notification if any API rate limits were hit."""
@@ -492,7 +504,9 @@ class TradingEngine:
         for h in hits:
             lines.append(f"  [{h['timestamp']}] {h['function']}: {h['message']}")
         lines.append("")
-        lines.append("Consider reducing the symbol list or increasing the monitor interval.")
+        lines.append(
+            "Consider reducing the symbol list or increasing the monitor interval."
+        )
 
         message = "\n".join(lines)
         logger.warning(message)
@@ -527,7 +541,9 @@ class TradingEngine:
         return closes
 
     def _build_benchmark_data(
-        self, equity: float, daily_pnl: float | None,
+        self,
+        equity: float,
+        daily_pnl: float | None,
         benchmark_closes: dict,
     ) -> dict | None:
         """Build benchmark comparison dict with daily + YTD percentages."""
@@ -541,7 +557,9 @@ class TradingEngine:
         # Portfolio daily %
         if daily_pnl is not None and equity > 0:
             prev_equity = equity - daily_pnl
-            bm["portfolio_daily"] = (daily_pnl / prev_equity * 100) if prev_equity else None
+            bm["portfolio_daily"] = (
+                (daily_pnl / prev_equity * 100) if prev_equity else None
+            )
         else:
             bm["portfolio_daily"] = None
 
@@ -598,12 +616,16 @@ class TradingEngine:
         )
 
         benchmark_data = self._build_benchmark_data(
-            account_info["equity"], daily_pnl, benchmark_closes,
+            account_info["equity"],
+            daily_pnl,
+            benchmark_closes,
         )
 
-        trades_today = len(self.trade_log.get_trades(
-            since=datetime.now().strftime("%Y-%m-%d"), limit=100
-        ))
+        trades_today = len(
+            self.trade_log.get_trades(
+                since=datetime.now().strftime("%Y-%m-%d"), limit=100
+            )
+        )
 
         self.notifier.notify_daily_summary(
             equity=account_info["equity"],
@@ -616,18 +638,20 @@ class TradingEngine:
             max_positions=self.config.risk.max_open_positions,
         )
 
-
     def generate_weekly_report(self):
         """Generate and send the weekly performance digest."""
         from src.weekly_digest import generate_weekly_digest
+
         trading_client = get_trading_client(paper=self.paper)
         open_positions = get_positions(trading_client)
         account_info = get_account_info(trading_client)
         digest = generate_weekly_digest(
-            self.trade_log, self.config, account_info, open_positions,
+            self.trade_log,
+            self.config,
+            account_info,
+            open_positions,
         )
         self.notifier.notify_weekly_digest(digest)
-
 
     def generate_hourly_digest(self):
         """Query trades and rejections from the last hour and send digest emails.
@@ -676,7 +700,9 @@ class TradingEngine:
         digest_notifier.flush_trades()
         logger.info(
             "Hourly digest sent: %d buys, %d sells, %d rejections",
-            len(buys), len(sells), len(recent_rejections),
+            len(buys),
+            len(sells),
+            len(recent_rejections),
         )
 
 
@@ -684,9 +710,7 @@ def run_scheduler(config: AppConfig | None = None):
     """Start the daily scheduler. Blocks indefinitely."""
     engine = TradingEngine(config)
 
-    schedule.every().day.at(engine.config.scheduler.run_time).do(
-        engine.run_daily_scan
-    )
+    schedule.every().day.at(engine.config.scheduler.run_time).do(engine.run_daily_scan)
 
     interval = engine.config.scheduler.monitor_interval_min
     schedule.every(interval).minutes.do(engine.monitor_stops)
@@ -696,7 +720,8 @@ def run_scheduler(config: AppConfig | None = None):
     logger.info(
         "Scheduler started. Daily scan at %s, "
         "stop monitoring every %d min. Ctrl+C to stop.",
-        engine.config.scheduler.run_time, interval,
+        engine.config.scheduler.run_time,
+        interval,
     )
 
     try:

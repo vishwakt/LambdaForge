@@ -7,7 +7,7 @@ SELL when price breaks below lower band during squeeze with volume confirmation.
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class BollingerSqueezeStrategy(Strategy):
@@ -59,7 +59,7 @@ class BollingerSqueezeStrategy(Strategy):
         bandwidth = (upper_band - lower_band) / sma
 
         # Bandwidth percentile over lookback window
-        bw_window = bandwidth.iloc[-self.squeeze_lookback:]
+        bw_window = bandwidth.iloc[-self.squeeze_lookback :]
         current_bw = bandwidth.iloc[-1]
         bw_percentile = (bw_window < current_bw).sum() / len(bw_window) * 100
 
@@ -87,7 +87,9 @@ class BollingerSqueezeStrategy(Strategy):
             "bandwidth": round(current_bw, 4),
             "bw_percentile": round(bw_percentile, 1),
             "pct_b": round(pct_b, 3),
-            "volume_ratio": round(current_volume / avg_vol_now, 2) if avg_vol_now > 0 else 0,
+            "volume_ratio": round(current_volume / avg_vol_now, 2)
+            if avg_vol_now > 0
+            else 0,
             "in_squeeze": in_squeeze,
         }
 
@@ -109,7 +111,9 @@ class BollingerSqueezeStrategy(Strategy):
                 ),
                 entry_price=current_price,
                 stop_loss=round(sma_now, 2),  # Stop at middle band
-                take_profit=round(current_price + (current_price - sma_now), 2),  # 1:1 measured move
+                take_profit=round(
+                    current_price + (current_price - sma_now), 2
+                ),  # 1:1 measured move
                 metadata=metadata,
             )
 

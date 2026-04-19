@@ -6,7 +6,7 @@ in ranging markets. Only takes trades when ADX indicates a strong trend.
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class EMACrossoverStrategy(Strategy):
@@ -54,8 +54,12 @@ class EMACrossoverStrategy(Strategy):
         # Smoothed averages (Wilder's smoothing)
         alpha = 1 / self.adx_period
         atr = tr.ewm(alpha=alpha, min_periods=self.adx_period).mean()
-        plus_di = 100 * plus_dm.ewm(alpha=alpha, min_periods=self.adx_period).mean() / atr
-        minus_di = 100 * minus_dm.ewm(alpha=alpha, min_periods=self.adx_period).mean() / atr
+        plus_di = (
+            100 * plus_dm.ewm(alpha=alpha, min_periods=self.adx_period).mean() / atr
+        )
+        minus_di = (
+            100 * minus_dm.ewm(alpha=alpha, min_periods=self.adx_period).mean() / atr
+        )
 
         # DX and ADX
         dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
@@ -130,7 +134,7 @@ class EMACrossoverStrategy(Strategy):
                     f"ADX={adx_now:.1f} (strong trend)"
                 ),
                 entry_price=current_price,
-                stop_loss=round(current_price * 0.97, 2),   # 3% stop
+                stop_loss=round(current_price * 0.97, 2),  # 3% stop
                 take_profit=round(current_price * 1.06, 2),  # 6% target (2:1 R/R)
                 metadata=metadata,
             )
@@ -165,8 +169,6 @@ class EMACrossoverStrategy(Strategy):
             symbol=symbol,
             action=Action.HOLD,
             confidence=0.1,
-            reason=(
-                f"EMA bearish (fast < slow), no crossover. ADX={adx_now:.1f}"
-            ),
+            reason=(f"EMA bearish (fast < slow), no crossover. ADX={adx_now:.1f}"),
             metadata=metadata,
         )

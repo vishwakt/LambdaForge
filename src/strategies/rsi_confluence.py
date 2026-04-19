@@ -7,7 +7,7 @@ Sells when RSI is overbought. This reduces false signals from RSI alone.
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class RSIConfluenceStrategy(Strategy):
@@ -44,8 +44,12 @@ class RSIConfluenceStrategy(Strategy):
         gain = delta.where(delta > 0, 0.0)
         loss = (-delta).where(delta < 0, 0.0)
 
-        avg_gain = gain.ewm(alpha=1 / self.rsi_period, min_periods=self.rsi_period).mean()
-        avg_loss = loss.ewm(alpha=1 / self.rsi_period, min_periods=self.rsi_period).mean()
+        avg_gain = gain.ewm(
+            alpha=1 / self.rsi_period, min_periods=self.rsi_period
+        ).mean()
+        avg_loss = loss.ewm(
+            alpha=1 / self.rsi_period, min_periods=self.rsi_period
+        ).mean()
 
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
@@ -113,7 +117,7 @@ class RSIConfluenceStrategy(Strategy):
                     f"with volume surge ({vol_now / vol_avg:.1f}x avg)"
                 ),
                 entry_price=current_price,
-                stop_loss=round(current_price * 0.96, 2),   # 4% stop
+                stop_loss=round(current_price * 0.96, 2),  # 4% stop
                 take_profit=round(current_price * 1.08, 2),  # 8% target (2:1 R/R)
                 metadata=metadata,
             )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, date
+from datetime import date, datetime
 
 
 class TradeLog:
@@ -72,9 +72,7 @@ class TradeLog:
             ]
             for table, col, col_type in migrations:
                 try:
-                    conn.execute(
-                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
-                    )
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
             conn.commit()
@@ -114,9 +112,17 @@ class TradeLog:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now().isoformat(),
-                    symbol, side, qty, order_type, order_id,
-                    strategy, confidence, reason, stop_loss,
-                    take_profit, parent_trade_id,
+                    symbol,
+                    side,
+                    qty,
+                    order_type,
+                    order_id,
+                    strategy,
+                    confidence,
+                    reason,
+                    stop_loss,
+                    take_profit,
+                    parent_trade_id,
                 ),
             )
             conn.commit()
@@ -219,9 +225,7 @@ class TradeLog:
         finally:
             conn.close()
 
-    def get_trades_for_period(
-        self, start: str, end: str
-    ) -> list[dict]:
+    def get_trades_for_period(self, start: str, end: str) -> list[dict]:
         """Get all trades within a date range (inclusive)."""
         conn = self._get_conn()
         try:
@@ -262,8 +266,17 @@ class TradeLog:
                            open_positions = ?, daily_pnl = ?,
                            spy_close = ?, qqq_close = ?, dia_close = ?
                        WHERE date = ?""",
-                    (equity, cash, portfolio_value, open_positions, daily_pnl,
-                     spy_close, qqq_close, dia_close, today),
+                    (
+                        equity,
+                        cash,
+                        portfolio_value,
+                        open_positions,
+                        daily_pnl,
+                        spy_close,
+                        qqq_close,
+                        dia_close,
+                        today,
+                    ),
                 )
             else:
                 conn.execute(
@@ -271,8 +284,17 @@ class TradeLog:
                        (date, equity, cash, portfolio_value, open_positions,
                         daily_pnl, spy_close, qqq_close, dia_close)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (today, equity, cash, portfolio_value, open_positions,
-                     daily_pnl, spy_close, qqq_close, dia_close),
+                    (
+                        today,
+                        equity,
+                        cash,
+                        portfolio_value,
+                        open_positions,
+                        daily_pnl,
+                        spy_close,
+                        qqq_close,
+                        dia_close,
+                    ),
                 )
             conn.commit()
         finally:
@@ -325,7 +347,11 @@ class TradeLog:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now().isoformat(),
-                    symbol, strategy, action, confidence, rejection_reason,
+                    symbol,
+                    strategy,
+                    action,
+                    confidence,
+                    rejection_reason,
                 ),
             )
             conn.commit()
@@ -471,7 +497,7 @@ class TradeLog:
                 pnl_values = [r["pnl"] for r in pnl_rows]
 
                 trade_count = conn.execute(
-                    f"SELECT COUNT(*) as c FROM trades WHERE strategy = ?"
+                    "SELECT COUNT(*) as c FROM trades WHERE strategy = ?"
                     + (" AND timestamp >= ?" if since else ""),
                     [strat] + (params if since else []),
                 ).fetchone()["c"]
@@ -481,18 +507,20 @@ class TradeLog:
                 total_pnl = sum(pnl_values)
                 avg_pnl = total_pnl / len(pnl_values) if pnl_values else 0.0
 
-                results.append({
-                    "strategy": strat,
-                    "total_trades": trade_count,
-                    "closed_trades": len(pnl_values),
-                    "wins": wins,
-                    "losses": losses,
-                    "total_pnl": round(total_pnl, 2),
-                    "avg_pnl": round(avg_pnl, 2),
-                    "win_rate": round(
-                        wins / len(pnl_values) if pnl_values else 0.0, 4
-                    ),
-                })
+                results.append(
+                    {
+                        "strategy": strat,
+                        "total_trades": trade_count,
+                        "closed_trades": len(pnl_values),
+                        "wins": wins,
+                        "losses": losses,
+                        "total_pnl": round(total_pnl, 2),
+                        "avg_pnl": round(avg_pnl, 2),
+                        "win_rate": round(
+                            wins / len(pnl_values) if pnl_values else 0.0, 4
+                        ),
+                    }
+                )
 
             results.sort(key=lambda x: x["total_pnl"], reverse=True)
             return results

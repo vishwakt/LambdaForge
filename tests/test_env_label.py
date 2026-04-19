@@ -1,7 +1,6 @@
 """Tests for environment label in email subjects."""
 
 import os
-import pytest
 from unittest.mock import patch
 
 from src.notifier import _get_env_label

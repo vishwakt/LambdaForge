@@ -1,7 +1,7 @@
 """Tests for SSM parameter caching to reduce KMS calls."""
 
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,8 +23,7 @@ def _make_mock_boto3(params: dict[str, str], prefix: str = "/stock-bot/"):
     paginator.paginate.return_value = [
         {
             "Parameters": [
-                {"Name": f"{prefix}{k}", "Value": v}
-                for k, v in params.items()
+                {"Name": f"{prefix}{k}", "Value": v} for k, v in params.items()
             ]
         }
     ]
@@ -42,8 +41,17 @@ class TestSSMCache:
         """First call should fetch from SSM."""
         mock_boto3, mock_ssm = _make_mock_boto3({"max_positions": "10"})
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": MagicMock()}), \
-             patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": mock_boto3,
+                    "botocore": MagicMock(),
+                    "botocore.exceptions": MagicMock(),
+                },
+            ),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
             result = ssm_config.load_ssm_params()
 
         assert result == {"max_positions": "10"}
@@ -53,8 +61,17 @@ class TestSSMCache:
         """Second call should return cached result without hitting SSM."""
         mock_boto3, mock_ssm = _make_mock_boto3({"max_positions": "10"})
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": MagicMock()}), \
-             patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": mock_boto3,
+                    "botocore": MagicMock(),
+                    "botocore.exceptions": MagicMock(),
+                },
+            ),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
             first = ssm_config.load_ssm_params()
             second = ssm_config.load_ssm_params()
 
@@ -66,8 +83,17 @@ class TestSSMCache:
         """After clearing cache, next call should hit SSM again."""
         mock_boto3, mock_ssm = _make_mock_boto3({"max_positions": "10"})
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": MagicMock()}), \
-             patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": mock_boto3,
+                    "botocore": MagicMock(),
+                    "botocore.exceptions": MagicMock(),
+                },
+            ),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
             ssm_config.load_ssm_params()
             ssm_config.clear_ssm_cache()
             ssm_config.load_ssm_params()
@@ -78,10 +104,21 @@ class TestSSMCache:
         """If SSM returns no params, don't cache — allow retry on next call."""
         mock_boto3, mock_ssm = _make_mock_boto3({})
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": MagicMock()}), \
-             patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": mock_boto3,
+                    "botocore": MagicMock(),
+                    "botocore.exceptions": MagicMock(),
+                },
+            ),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
             first = ssm_config.load_ssm_params()
-            second = ssm_config.load_ssm_params()
+            # Second call verifies that empty result isn't cached and SSM is
+            # re-queried (asserted via get_paginator.call_count below).
+            ssm_config.load_ssm_params()
 
         assert first == {}
         # Both calls should hit SSM since empty result isn't cached
@@ -89,13 +126,24 @@ class TestSSMCache:
 
     def test_cache_persists_across_calls(self):
         """Cached params should be identical dict on repeated calls."""
-        mock_boto3, mock_ssm = _make_mock_boto3({
-            "max_positions": "10",
-            "trailing_stop_pct": "0.05",
-        })
+        mock_boto3, mock_ssm = _make_mock_boto3(
+            {
+                "max_positions": "10",
+                "trailing_stop_pct": "0.05",
+            }
+        )
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": MagicMock()}), \
-             patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": mock_boto3,
+                    "botocore": MagicMock(),
+                    "botocore.exceptions": MagicMock(),
+                },
+            ),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
             first = ssm_config.load_ssm_params()
             second = ssm_config.load_ssm_params()
 

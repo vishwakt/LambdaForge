@@ -7,7 +7,7 @@ SELL when MACD crosses below signal with decreasing histogram.
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class MACDStrategy(Strategy):

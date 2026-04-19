@@ -24,6 +24,7 @@ def sample_bars():
         trend: 'up', 'down', or 'flat' (default 'flat')
         volatility: daily volatility as fraction (default 0.02)
     """
+
     def _make_bars(
         n: int = 200,
         start_price: float = 100.0,
@@ -49,13 +50,16 @@ def sample_bars():
 
         dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n, freq="D")
 
-        return pd.DataFrame({
-            "open": open_,
-            "high": high,
-            "low": low,
-            "close": close,
-            "volume": volume,
-            "vwap": vwap,
-        }, index=dates)
+        return pd.DataFrame(
+            {
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume,
+                "vwap": vwap,
+            },
+            index=dates,
+        )
 
     return _make_bars

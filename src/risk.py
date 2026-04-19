@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.config import RiskConfig
+from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
-from src.strategies.base import Signal, Action
 
 
 class RiskVerdict(Enum):
@@ -74,7 +74,8 @@ class RiskManager:
         # Check 4: Concentration limit (replaces old duplicate-position block)
         if signal.action == Action.BUY:
             existing_exposure = sum(
-                p["market_value"] for p in open_positions
+                p["market_value"]
+                for p in open_positions
                 if p["symbol"] == signal.symbol
             )
             if existing_exposure > 0:
@@ -137,7 +138,9 @@ class RiskManager:
         return daily_change_pct < -self.config.daily_loss_limit_pct
 
     def _calculate_position_size(
-        self, signal: Signal, account_info: dict,
+        self,
+        signal: Signal,
+        account_info: dict,
         open_positions: list[dict] | None = None,
     ) -> tuple:
         """Calculate number of whole shares based on max position % of portfolio.
@@ -157,7 +160,8 @@ class RiskManager:
         # Reduce allocation by existing exposure (concentration cap)
         if open_positions:
             existing = sum(
-                p["market_value"] for p in open_positions
+                p["market_value"]
+                for p in open_positions
                 if p["symbol"] == signal.symbol
             )
             if existing > 0:

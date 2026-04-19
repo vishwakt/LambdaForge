@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from src.client import get_account_info, get_positions, get_trading_client
 from src.config import AppConfig, load_config
-from src.client import get_trading_client, get_account_info, get_positions
 from src.trade_log import TradeLog
-
 
 # ANSI color helpers
 GREEN = "\033[92m"
@@ -85,7 +84,9 @@ def print_dashboard(config: AppConfig | None = None):
     if prev:
         daily_pnl = account["equity"] - prev["equity"]
         daily_pct = daily_pnl / prev["equity"]
-        print(f"  Today's P&L:   {_color_pnl(daily_pnl):>24s}  ({_color_pct(daily_pct)})")
+        print(
+            f"  Today's P&L:   {_color_pnl(daily_pnl):>24s}  ({_color_pct(daily_pct)})"
+        )
     else:
         print(f"  Today's P&L:   {DIM}N/A (no previous snapshot){RESET}")
     print()
@@ -97,8 +98,10 @@ def print_dashboard(config: AppConfig | None = None):
         print(f"  {DIM}No open positions.{RESET}")
     else:
         # Header
-        print(f"  {'Symbol':<8} {'Qty':>5} {'Entry':>9} {'Current':>9} {'P&L':>12} {'%':>8}")
-        print(f"  {'─'*8} {'─'*5} {'─'*9} {'─'*9} {'─'*12} {'─'*8}")
+        print(
+            f"  {'Symbol':<8} {'Qty':>5} {'Entry':>9} {'Current':>9} {'P&L':>12} {'%':>8}"
+        )
+        print(f"  {'─' * 8} {'─' * 5} {'─' * 9} {'─' * 9} {'─' * 12} {'─' * 8}")
 
         total_unrealized = 0.0
         for p in positions:
@@ -113,7 +116,7 @@ def print_dashboard(config: AppConfig | None = None):
                 f"{_color_pct(pct)}"
             )
 
-        print(f"  {'─'*8} {'─'*5} {'─'*9} {'─'*9} {'─'*12} {'─'*8}")
+        print(f"  {'─' * 8} {'─' * 5} {'─' * 9} {'─' * 9} {'─' * 12} {'─' * 8}")
         print(f"  {'Total':<24} {'':>9} {_color_pnl(total_unrealized):>24s}")
     print()
 
@@ -125,8 +128,10 @@ def print_dashboard(config: AppConfig | None = None):
     print(f"  Closed Trades:  {stats['closed_trades']:>6}")
 
     if stats["closed_trades"] > 0:
-        print(f"  Win Rate:       {stats['win_rate']:>6.1%}  "
-              f"({stats['wins']}W / {stats['losses']}L)")
+        print(
+            f"  Win Rate:       {stats['win_rate']:>6.1%}  "
+            f"({stats['wins']}W / {stats['losses']}L)"
+        )
         print(f"  Total P&L:     {_color_pnl(stats['total_pnl']):>18s}")
         print(f"  Avg P&L:       {_color_pnl(stats['avg_pnl']):>18s}")
         print(f"  Best Trade:    {_color_pnl(stats['best_trade']):>18s}")
@@ -188,11 +193,15 @@ def print_pnl_report(days: int = 30, config: AppConfig | None = None):
 
     print(f"{BOLD}  SUMMARY{RESET}")
     print(f"  {'─' * 50}")
-    print(f"  Period:         {first['date']} to {last['date']} "
-          f"({len(snapshots)} trading days)")
+    print(
+        f"  Period:         {first['date']} to {last['date']} "
+        f"({len(snapshots)} trading days)"
+    )
     print(f"  Start Equity:   ${first['equity']:>12,.2f}")
     print(f"  End Equity:     ${last['equity']:>12,.2f}")
-    print(f"  Total Return:  {_color_pnl(total_return):>18s}  ({_color_pct(total_return_pct)})")
+    print(
+        f"  Total Return:  {_color_pnl(total_return):>18s}  ({_color_pct(total_return_pct)})"
+    )
     print()
 
     # Daily breakdown
@@ -208,9 +217,11 @@ def print_pnl_report(days: int = 30, config: AppConfig | None = None):
 
         print(f"{BOLD}  DAILY P&L BREAKDOWN{RESET}")
         print(f"  {'─' * 50}")
-        print(f"  Positive Days:  {GREEN}{positive_days}{RESET}   "
-              f"Negative: {RED}{negative_days}{RESET}   "
-              f"Flat: {flat_days}")
+        print(
+            f"  Positive Days:  {GREEN}{positive_days}{RESET}   "
+            f"Negative: {RED}{negative_days}{RESET}   "
+            f"Flat: {flat_days}"
+        )
         print(f"  Best Day:      {_color_pnl(best_day):>18s}")
         print(f"  Worst Day:     {_color_pnl(worst_day):>18s}")
         print(f"  Avg Daily P&L: {_color_pnl(avg_daily):>18s}")
@@ -288,9 +299,11 @@ def print_performance(days: int | None = None, config: AppConfig | None = None):
         return
 
     # Per-strategy table
-    print(f"  {'Strategy':<12} {'Trades':>7} {'Closed':>7} "
-          f"{'Win%':>6} {'W/L':>7} {'Total P&L':>12} {'Avg P&L':>10}")
-    print(f"  {'─'*12} {'─'*7} {'─'*7} {'─'*6} {'─'*7} {'─'*12} {'─'*10}")
+    print(
+        f"  {'Strategy':<12} {'Trades':>7} {'Closed':>7} "
+        f"{'Win%':>6} {'W/L':>7} {'Total P&L':>12} {'Avg P&L':>10}"
+    )
+    print(f"  {'─' * 12} {'─' * 7} {'─' * 7} {'─' * 6} {'─' * 7} {'─' * 12} {'─' * 10}")
 
     for s in stats:
         wr_color = GREEN if s["win_rate"] >= 0.5 else RED
@@ -302,7 +315,7 @@ def print_performance(days: int | None = None, config: AppConfig | None = None):
             f"{_color_pnl(s['avg_pnl']):>22s}"
         )
 
-    print(f"  {'─'*12} {'─'*7} {'─'*7} {'─'*6} {'─'*7} {'─'*12} {'─'*10}")
+    print(f"  {'─' * 12} {'─' * 7} {'─' * 7} {'─' * 6} {'─' * 7} {'─' * 12} {'─' * 10}")
 
     # Overall
     if overall["closed_trades"] > 0:

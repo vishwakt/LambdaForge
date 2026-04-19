@@ -1,13 +1,13 @@
 """Trading strategies package."""
 
-from src.strategies.base import Strategy, Signal, Action
-from src.strategies.macd import MACDStrategy
+from src.strategies.base import Action, Signal, Strategy
 from src.strategies.bollinger import BollingerSqueezeStrategy
-from src.strategies.mean_reversion import MeanReversionStrategy
-from src.strategies.rsi_confluence import RSIConfluenceStrategy
 from src.strategies.ema_crossover import EMACrossoverStrategy
-from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
+from src.strategies.macd import MACDStrategy
+from src.strategies.mean_reversion import MeanReversionStrategy
 from src.strategies.relative_strength import RelativeStrengthStrategy
+from src.strategies.rsi_confluence import RSIConfluenceStrategy
+from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
 
 STRATEGIES = {
     "macd": MACDStrategy,

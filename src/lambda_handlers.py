@@ -100,7 +100,7 @@ def _set_kill_switch(state: str):
 
 def _liquidate_all():
     """Cancel all open orders and liquidate all positions."""
-    from src.client import get_trading_client, get_positions, place_market_order
+    from src.client import get_positions, get_trading_client, place_market_order
     from src.notifier import get_notifier
 
     config = load_config()
@@ -131,13 +131,12 @@ def _liquidate_all():
             logger.error("KILL SWITCH: Failed to liquidate %s: %s", symbol, e)
 
     notifier.notify_daily_summary(
-        equity=0, daily_pnl=None,
+        equity=0,
+        daily_pnl=None,
         trades_today=len(positions),
         open_positions=0,
     )
-    logger.warning(
-        "KILL SWITCH: Liquidated %d positions", len(positions)
-    )
+    logger.warning("KILL SWITCH: Liquidated %d positions", len(positions))
 
 
 def _check_and_enforce_kill_switch() -> bool:
@@ -245,6 +244,9 @@ def kill_switch_handler(event, context):
     if action == "kill":
         _liquidate_all()
         _sync_db_to_s3()
-        return {"statusCode": 200, "body": "Kill switch ENGAGED — all positions liquidated"}
+        return {
+            "statusCode": 200,
+            "body": "Kill switch ENGAGED — all positions liquidated",
+        }
 
     return {"statusCode": 200, "body": "Kill switch DISENGAGED — trading resumed"}

@@ -5,15 +5,14 @@ import json
 import sys
 
 from src.client import (
-    get_trading_client,
-    get_data_client,
-    get_account_info,
-    get_positions,
-    get_latest_quote,
-    place_market_order,
-    place_limit_order,
-    get_order,
     cancel_order,
+    get_account_info,
+    get_data_client,
+    get_latest_quote,
+    get_order,
+    get_positions,
+    get_trading_client,
+    place_market_order,
 )
 from src.data_fetcher import fetch_daily_bars
 from src.strategies import STRATEGIES
@@ -89,7 +88,9 @@ def cmd_cancel(args):
 def cmd_scan(args):
     """Run strategy scan on a single symbol."""
     symbol = args.symbol.upper()
-    strategy_names = list(STRATEGIES.keys()) if args.strategy == "all" else [args.strategy]
+    strategy_names = (
+        list(STRATEGIES.keys()) if args.strategy == "all" else [args.strategy]
+    )
 
     print(f"Fetching {args.days} days of data for {symbol}...")
     bars = fetch_daily_bars(symbol, days=args.days)
@@ -114,7 +115,7 @@ def cmd_scan(args):
         if signal.take_profit is not None:
             print(f"  Take Profit:${signal.take_profit:.2f}")
         if signal.metadata:
-            print(f"  Indicators: ", end="")
+            print("  Indicators: ", end="")
             print_json(signal.metadata)
         print()
 
@@ -122,27 +123,37 @@ def cmd_scan(args):
 def cmd_scan_multi(args):
     """Run strategy scan on multiple symbols."""
     symbols = [s.upper() for s in args.symbols]
-    strategy_names = list(STRATEGIES.keys()) if args.strategy == "all" else [args.strategy]
+    strategy_names = (
+        list(STRATEGIES.keys()) if args.strategy == "all" else [args.strategy]
+    )
 
     for symbol in symbols:
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"  Scanning {symbol}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         try:
             bars = fetch_daily_bars(symbol, days=args.days)
-            print(f"  {len(bars)} bars ({bars.index[0].date()} to {bars.index[-1].date()})\n")
+            print(
+                f"  {len(bars)} bars ({bars.index[0].date()} to {bars.index[-1].date()})\n"
+            )
 
             for name in strategy_names:
                 strategy = STRATEGIES[name]()
                 signal = strategy.generate_signal(symbol, bars)
 
-                action_colors = {"BUY": "\033[92m", "SELL": "\033[91m", "HOLD": "\033[93m"}
+                action_colors = {
+                    "BUY": "\033[92m",
+                    "SELL": "\033[91m",
+                    "HOLD": "\033[93m",
+                }
                 reset = "\033[0m"
                 color = action_colors.get(signal.action.value, "")
 
-                print(f"  [{strategy.name.upper()}] {color}{signal.action.value}{reset} "
-                      f"(confidence: {signal.confidence:.1%})")
+                print(
+                    f"  [{strategy.name.upper()}] {color}{signal.action.value}{reset} "
+                    f"(confidence: {signal.confidence:.1%})"
+                )
                 print(f"    {signal.reason}")
                 if signal.entry_price is not None:
                     print(f"    Entry: ${signal.entry_price:.2f}", end="")
@@ -168,6 +179,7 @@ def cmd_strategies(args):
 def cmd_run_once(args):
     """Run the daily trading scan once (no scheduler)."""
     import logging
+
     from src.config import load_config
     from src.scheduler import TradingEngine
 
@@ -184,6 +196,7 @@ def cmd_run_once(args):
 def cmd_run_daily(args):
     """Start the daily scheduler (blocks forever)."""
     import logging
+
     from src.config import load_config
     from src.scheduler import run_scheduler
 
@@ -232,7 +245,6 @@ def cmd_trades(args):
 def cmd_risk_check(args):
     """Run risk checks against current portfolio state."""
     from src.config import load_config
-    from src.risk import RiskManager
     from src.trade_log import TradeLog
 
     config = load_config()
@@ -248,8 +260,10 @@ def cmd_risk_check(args):
     print(f"  Equity:          ${account_info['equity']:,.2f}")
     print(f"  Cash:            ${account_info['cash']:,.2f}")
     print(f"  Open Positions:  {len(positions)}/{config.risk.max_open_positions}")
-    print(f"  Max Per Trade:   ${account_info['portfolio_value'] * config.risk.max_position_pct:,.2f} "
-          f"({config.risk.max_position_pct:.0%} of portfolio)")
+    print(
+        f"  Max Per Trade:   ${account_info['portfolio_value'] * config.risk.max_position_pct:,.2f} "
+        f"({config.risk.max_position_pct:.0%} of portfolio)"
+    )
     print(f"  Daily Loss Lim:  {config.risk.daily_loss_limit_pct:.1%}")
     print(f"  Min Confidence:  {config.risk.min_confidence:.0%}")
 
@@ -264,7 +278,7 @@ def cmd_risk_check(args):
         print("  Today's P&L:     N/A (no previous snapshot)")
 
     if positions:
-        print(f"\n  Current Positions:")
+        print("\n  Current Positions:")
         for p in positions:
             pl_color = "\033[92m" if p["unrealized_pl"] >= 0 else "\033[91m"
             print(
@@ -278,6 +292,7 @@ def cmd_risk_check(args):
 def cmd_stop_monitor(args):
     """Check stop-losses once (no loop)."""
     import logging
+
     from src.config import load_config
     from src.scheduler import TradingEngine
 
@@ -357,13 +372,17 @@ def main():
     scan_parser = subparsers.add_parser("scan", help="Run strategy scan on a symbol")
     scan_parser.add_argument("symbol", help="Ticker symbol (e.g., AAPL)")
     scan_parser.add_argument(
-        "--strategy", "-s",
+        "--strategy",
+        "-s",
         default="all",
         choices=list(STRATEGIES.keys()) + ["all"],
         help="Strategy to run (default: all)",
     )
     scan_parser.add_argument(
-        "--days", "-d", type=int, default=200,
+        "--days",
+        "-d",
+        type=int,
+        default=200,
         help="Days of historical data to fetch (default: 200)",
     )
 
@@ -371,13 +390,17 @@ def main():
     multi_parser = subparsers.add_parser("scan-multi", help="Scan multiple symbols")
     multi_parser.add_argument("symbols", nargs="+", help="Ticker symbols")
     multi_parser.add_argument(
-        "--strategy", "-s",
+        "--strategy",
+        "-s",
         default="all",
         choices=list(STRATEGIES.keys()) + ["all"],
         help="Strategy to run (default: all)",
     )
     multi_parser.add_argument(
-        "--days", "-d", type=int, default=200,
+        "--days",
+        "-d",
+        type=int,
+        default=200,
         help="Days of historical data (default: 200)",
     )
 
@@ -400,7 +423,10 @@ def main():
     trades_parser = subparsers.add_parser("trades", help="Show trade history")
     trades_parser.add_argument("--symbol", "-s", help="Filter by symbol")
     trades_parser.add_argument(
-        "--limit", "-n", type=int, default=20,
+        "--limit",
+        "-n",
+        type=int,
+        default=20,
         help="Number of trades to show (default: 20)",
     )
 
@@ -416,7 +442,10 @@ def main():
     # pnl (M4)
     pnl_parser = subparsers.add_parser("pnl", help="P&L report from daily snapshots")
     pnl_parser.add_argument(
-        "--days", "-d", type=int, default=30,
+        "--days",
+        "-d",
+        type=int,
+        default=30,
         help="Number of days to include (default: 30)",
     )
 
@@ -425,7 +454,10 @@ def main():
         "performance", help="Strategy performance breakdown"
     )
     perf_parser.add_argument(
-        "--days", "-d", type=int, default=None,
+        "--days",
+        "-d",
+        type=int,
+        default=None,
         help="Limit to last N days (default: all time)",
     )
 

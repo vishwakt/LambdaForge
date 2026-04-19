@@ -7,12 +7,12 @@ import os
 import time
 
 from alpaca.common.exceptions import APIError
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestQuoteRequest, StockBarsRequest
+from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,11 +32,13 @@ def get_rate_limit_hits() -> list[dict]:
 
 def _handle_rate_limit(func_name: str, error: APIError, retry: bool = True):
     """Log a rate limit hit and optionally retry after backoff."""
-    _rate_limit_hits.append({
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "function": func_name,
-        "message": str(error),
-    })
+    _rate_limit_hits.append(
+        {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "function": func_name,
+            "message": str(error),
+        }
+    )
     logger.warning("RATE LIMIT HIT in %s: %s", func_name, error)
     if retry:
         wait = 2
@@ -53,7 +55,9 @@ def _get_credentials(paper: bool = True) -> tuple:
     suffix = "PAPER" if paper else "LIVE"
 
     api_key = os.getenv(f"ALPACA_API_KEY_{suffix}") or os.getenv("ALPACA_API_KEY")
-    secret_key = os.getenv(f"ALPACA_SECRET_KEY_{suffix}") or os.getenv("ALPACA_SECRET_KEY")
+    secret_key = os.getenv(f"ALPACA_SECRET_KEY_{suffix}") or os.getenv(
+        "ALPACA_SECRET_KEY"
+    )
 
     if not api_key or not secret_key:
         raise ValueError(
@@ -115,7 +119,7 @@ def get_positions(client: TradingClient) -> list[dict]:
 def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dict:
     """Get the latest quote for a symbol. Retries on rate limit."""
     request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-    for attempt in range(3):
+    for _ in range(3):
         try:
             quotes = data_client.get_stock_latest_quote(request)
             break
@@ -202,7 +206,9 @@ def get_order(client: TradingClient, order_id: str) -> dict:
         "side": order.side.value if order.side else str(order.side),
         "type": order.type.value if order.type else str(order.type),
         "status": order.status.value if order.status else str(order.status),
-        "filled_avg_price": str(order.filled_avg_price) if order.filled_avg_price else None,
+        "filled_avg_price": str(order.filled_avg_price)
+        if order.filled_avg_price
+        else None,
         "submitted_at": str(order.submitted_at),
         "filled_at": str(order.filled_at) if order.filled_at else None,
     }
@@ -251,14 +257,14 @@ def fetch_stock_bars_batch(
 
     results = {}
     for i in range(0, len(symbols), chunk_size):
-        chunk = symbols[i:i + chunk_size]
+        chunk = symbols[i : i + chunk_size]
         request = StockBarsRequest(
             symbol_or_symbols=chunk,
             timeframe=timeframe,
             start=start,
             end=end,
         )
-        for attempt in range(3):
+        for _ in range(3):
             try:
                 bar_set = data_client.get_stock_bars(request)
                 break
@@ -268,7 +274,9 @@ def fetch_stock_bars_batch(
                     continue
                 raise
         else:
-            logger.error("Rate limit retries exhausted for chunk %d", i // chunk_size + 1)
+            logger.error(
+                "Rate limit retries exhausted for chunk %d", i // chunk_size + 1
+            )
             for sym in chunk:
                 results[sym] = []
             continue

@@ -44,13 +44,19 @@ def _get_env_label() -> str:
 # Abstract base
 # ---------------------------------------------------------------------------
 
+
 class Notifier(ABC):
     """Abstract notification interface."""
 
     @abstractmethod
     def notify_trade(
-        self, side: str, symbol: str, qty: int, price: float,
-        strategy: str, reason: str,
+        self,
+        side: str,
+        symbol: str,
+        qty: int,
+        price: float,
+        strategy: str,
+        reason: str,
         all_strategy_signals: list[dict] | None = None,
         pnl: float | None = None,
     ):
@@ -58,15 +64,19 @@ class Notifier(ABC):
         ...
 
     @abstractmethod
-    def notify_stop_triggered(self, symbol: str, current_price: float,
-                              stop_price: float, pnl: float | None):
+    def notify_stop_triggered(
+        self, symbol: str, current_price: float, stop_price: float, pnl: float | None
+    ):
         """Called when a stop-loss triggers."""
         ...
 
     @abstractmethod
     def notify_daily_summary(
-        self, equity: float, daily_pnl: float | None,
-        trades_today: int, open_positions: int,
+        self,
+        equity: float,
+        daily_pnl: float | None,
+        trades_today: int,
+        open_positions: int,
         benchmark_data: dict | None = None,
         positions_detail: list[dict] | None = None,
         cash: float | None = None,
@@ -76,8 +86,9 @@ class Notifier(ABC):
         ...
 
     @abstractmethod
-    def notify_risk_rejection(self, symbol: str, strategy: str,
-                              action: str, reasons: list[str]):
+    def notify_risk_rejection(
+        self, symbol: str, strategy: str, action: str, reasons: list[str]
+    ):
         """Called when a signal is rejected by risk management."""
         ...
 
@@ -86,7 +97,7 @@ class Notifier(ABC):
         """Called on Friday EOD with the weekly performance report."""
         ...
 
-    def flush_trades(self):
+    def flush_trades(self):  # noqa: B027 — optional hook; buffering notifiers override.
         """Flush any buffered trade notifications. No-op by default."""
         pass
 
@@ -94,6 +105,7 @@ class Notifier(ABC):
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _format_pct(value: float | None, width: int = 7) -> str:
     """Format a percentage like '+1.23%' or '  N/A '."""
@@ -150,10 +162,10 @@ def _format_strategy_table(signals: list[dict]) -> str:
 def _format_benchmark_table(bm: dict) -> str:
     """Format benchmark comparison as an ASCII table."""
     rows = [
-        ("You",     bm.get("portfolio_daily"), bm.get("portfolio_ytd")),
-        ("S&P 500", bm.get("spy_daily"),       bm.get("spy_ytd")),
-        ("NASDAQ",  bm.get("qqq_daily"),       bm.get("qqq_ytd")),
-        ("Dow",     bm.get("dia_daily"),        bm.get("dia_ytd")),
+        ("You", bm.get("portfolio_daily"), bm.get("portfolio_ytd")),
+        ("S&P 500", bm.get("spy_daily"), bm.get("spy_ytd")),
+        ("NASDAQ", bm.get("qqq_daily"), bm.get("qqq_ytd")),
+        ("Dow", bm.get("dia_daily"), bm.get("dia_ytd")),
     ]
     lines = [
         "  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
@@ -207,8 +219,7 @@ def _format_positions(positions: list[dict]) -> str:
         current = p.get("current_price", 0)
         bar = _progress_bar(pct)
         lines.append(
-            f"  {p['symbol']:<5} {bar} {pct:+5.1f}%  "
-            f"(${entry:.0f}\u2192${current:.0f})"
+            f"  {p['symbol']:<5} {bar} {pct:+5.1f}%  (${entry:.0f}\u2192${current:.0f})"
         )
     return "\n".join(lines)
 
@@ -217,41 +228,75 @@ def _format_positions(positions: list[dict]) -> str:
 # Console notifier
 # ---------------------------------------------------------------------------
 
+
 class ConsoleNotifier(Notifier):
     """Logs notifications to stdout/logger. Default notifier."""
 
-    def notify_trade(self, side, symbol, qty, price, strategy, reason,
-                     all_strategy_signals=None, pnl=None):
+    def notify_trade(
+        self,
+        side,
+        symbol,
+        qty,
+        price,
+        strategy,
+        reason,
+        all_strategy_signals=None,
+        pnl=None,
+    ):
         pnl_str = f" P&L: ${pnl:+.2f}" if pnl is not None else ""
         logger.info(
             "TRADE: %s %d %s @ $%.2f [%s] — %s%s",
-            side.upper(), qty, symbol, price, strategy, reason, pnl_str,
+            side.upper(),
+            qty,
+            symbol,
+            price,
+            strategy,
+            reason,
+            pnl_str,
         )
         if all_strategy_signals:
-            logger.info("Strategy scores:\n%s",
-                        _format_strategy_table(all_strategy_signals))
+            logger.info(
+                "Strategy scores:\n%s", _format_strategy_table(all_strategy_signals)
+            )
 
     def notify_stop_triggered(self, symbol, current_price, stop_price, pnl):
         pnl_str = f"P&L: ${pnl:.2f}" if pnl is not None else ""
         logger.warning(
             "STOP-LOSS: %s hit $%.2f (stop: $%.2f) %s",
-            symbol, current_price, stop_price, pnl_str,
+            symbol,
+            current_price,
+            stop_price,
+            pnl_str,
         )
 
-    def notify_daily_summary(self, equity, daily_pnl, trades_today,
-                             open_positions, benchmark_data=None,
-                             positions_detail=None, cash=None,
-                             max_positions=12):
+    def notify_daily_summary(
+        self,
+        equity,
+        daily_pnl,
+        trades_today,
+        open_positions,
+        benchmark_data=None,
+        positions_detail=None,
+        cash=None,
+        max_positions=12,
+    ):
         pnl_str = f"${daily_pnl:+.2f}" if daily_pnl is not None else "N/A"
         logger.info(
             "DAILY SUMMARY: Equity=$%.2f, P&L=%s, Trades=%d, Positions=%d/%d",
-            equity, pnl_str, trades_today, open_positions, max_positions,
+            equity,
+            pnl_str,
+            trades_today,
+            open_positions,
+            max_positions,
         )
 
     def notify_risk_rejection(self, symbol, strategy, action, reasons):
         logger.warning(
             "REJECTED: %s %s [%s] — %s",
-            action, symbol, strategy, "; ".join(reasons),
+            action,
+            symbol,
+            strategy,
+            "; ".join(reasons),
         )
 
     def notify_weekly_digest(self, digest_text):
@@ -261,6 +306,7 @@ class ConsoleNotifier(Notifier):
 # ---------------------------------------------------------------------------
 # SNS notifier
 # ---------------------------------------------------------------------------
+
 
 class SNSNotifier(Notifier):
     """Sends notifications via AWS SNS (email subscriptions).
@@ -277,12 +323,11 @@ class SNSNotifier(Notifier):
 
     def __init__(self):
         import boto3
+
         self.topic_arn = os.getenv("SNS_TOPIC_ARN", "")
         self.notification_email = os.getenv("NOTIFICATION_EMAIL", "")
         if not self.topic_arn:
-            logger.warning(
-                "SNS_TOPIC_ARN not set — SNS notifications will be skipped"
-            )
+            logger.warning("SNS_TOPIC_ARN not set — SNS notifications will be skipped")
             self.client = None
         else:
             self.client = boto3.client("sns")
@@ -314,11 +359,12 @@ class SNSNotifier(Notifier):
             self._publish(subject, plain_text)
             return
         import html as html_mod
+
         escaped = html_mod.escape(plain_text)
         html_body = (
             "<!DOCTYPE html><html><head>"
             "<meta charset='utf-8'></head><body>"
-            "<pre style='font-family: \"Courier New\", Courier, monospace; "
+            '<pre style=\'font-family: "Courier New", Courier, monospace; '
             "font-size: 14px; line-height: 1.4; color: #222; "
             "background: #f9f9f9; padding: 16px; "
             "white-space: pre; overflow-x: auto;'>"
@@ -340,8 +386,17 @@ class SNSNotifier(Notifier):
             logger.error("SES send failed, falling back to SNS: %s", e)
             self._publish(subject, plain_text)
 
-    def notify_trade(self, side, symbol, qty, price, strategy, reason,
-                     all_strategy_signals=None, pnl=None):
+    def notify_trade(
+        self,
+        side,
+        symbol,
+        qty,
+        price,
+        strategy,
+        reason,
+        all_strategy_signals=None,
+        pnl=None,
+    ):
         pnl_line = ""
         if pnl is not None:
             pnl_line = f"\nP&L: ${pnl:+.2f}"
@@ -349,8 +404,7 @@ class SNSNotifier(Notifier):
         strat_table = ""
         if all_strategy_signals:
             strat_table = (
-                f"\n\nStrategy Scores:\n"
-                f"{_format_strategy_table(all_strategy_signals)}"
+                f"\n\nStrategy Scores:\n{_format_strategy_table(all_strategy_signals)}"
             )
 
         tag = _get_env_label()
@@ -377,10 +431,17 @@ class SNSNotifier(Notifier):
             ),
         )
 
-    def notify_daily_summary(self, equity, daily_pnl, trades_today,
-                             open_positions, benchmark_data=None,
-                             positions_detail=None, cash=None,
-                             max_positions=12):
+    def notify_daily_summary(
+        self,
+        equity,
+        daily_pnl,
+        trades_today,
+        open_positions,
+        benchmark_data=None,
+        positions_detail=None,
+        cash=None,
+        max_positions=12,
+    ):
         now = datetime.now()
         pnl_str = f"${daily_pnl:+,.2f}" if daily_pnl is not None else "N/A"
         pnl_pct = ""
@@ -389,7 +450,7 @@ class SNSNotifier(Notifier):
 
         sections = [
             "\u2550" * 42,
-            f"  STOCK TRADING BOT \u2014 DAILY REPORT",
+            "  STOCK TRADING BOT \u2014 DAILY REPORT",
             f"  {now.strftime('%Y-%m-%d (%a)')}",
             "\u2550" * 42,
             "",
@@ -398,9 +459,7 @@ class SNSNotifier(Notifier):
         ]
         if cash is not None:
             sections.append(f"  Cash:       ${cash:>12,.2f}")
-        sections.append(
-            f"  Positions:  {open_positions}/{max_positions} open"
-        )
+        sections.append(f"  Positions:  {open_positions}/{max_positions} open")
 
         if benchmark_data:
             sections.append("")
@@ -443,18 +502,36 @@ class SNSNotifier(Notifier):
 # Multi-notifier
 # ---------------------------------------------------------------------------
 
+
 class MultiNotifier(Notifier):
     """Wraps multiple notifiers for simultaneous delivery."""
 
     def __init__(self, notifiers: list[Notifier]):
         self.notifiers = notifiers
 
-    def notify_trade(self, side, symbol, qty, price, strategy, reason,
-                     all_strategy_signals=None, pnl=None):
+    def notify_trade(
+        self,
+        side,
+        symbol,
+        qty,
+        price,
+        strategy,
+        reason,
+        all_strategy_signals=None,
+        pnl=None,
+    ):
         for n in self.notifiers:
             try:
-                n.notify_trade(side, symbol, qty, price, strategy, reason,
-                               all_strategy_signals, pnl)
+                n.notify_trade(
+                    side,
+                    symbol,
+                    qty,
+                    price,
+                    strategy,
+                    reason,
+                    all_strategy_signals,
+                    pnl,
+                )
             except Exception as e:
                 logger.error("Notifier %s failed: %s", type(n).__name__, e)
 
@@ -465,15 +542,28 @@ class MultiNotifier(Notifier):
             except Exception as e:
                 logger.error("Notifier %s failed: %s", type(n).__name__, e)
 
-    def notify_daily_summary(self, equity, daily_pnl, trades_today,
-                             open_positions, benchmark_data=None,
-                             positions_detail=None, cash=None,
-                             max_positions=12):
+    def notify_daily_summary(
+        self,
+        equity,
+        daily_pnl,
+        trades_today,
+        open_positions,
+        benchmark_data=None,
+        positions_detail=None,
+        cash=None,
+        max_positions=12,
+    ):
         for n in self.notifiers:
             try:
                 n.notify_daily_summary(
-                    equity, daily_pnl, trades_today, open_positions,
-                    benchmark_data, positions_detail, cash, max_positions,
+                    equity,
+                    daily_pnl,
+                    trades_today,
+                    open_positions,
+                    benchmark_data,
+                    positions_detail,
+                    cash,
+                    max_positions,
                 )
             except Exception as e:
                 logger.error("Notifier %s failed: %s", type(n).__name__, e)
@@ -504,6 +594,7 @@ class MultiNotifier(Notifier):
 # Batching notifier
 # ---------------------------------------------------------------------------
 
+
 class BatchingNotifier(Notifier):
     """Wraps a notifier to batch notifications into consolidated emails.
 
@@ -523,20 +614,39 @@ class BatchingNotifier(Notifier):
         self._trade_buffer: list[dict] = []
         self._rejection_buffer: list[dict] = []
 
-    def notify_trade(self, side, symbol, qty, price, strategy, reason,
-                     all_strategy_signals=None, pnl=None):
-        self._trade_buffer.append({
-            "side": side, "symbol": symbol, "qty": qty,
-            "price": price, "strategy": strategy, "reason": reason,
-            "all_strategy_signals": all_strategy_signals,
-            "pnl": pnl,
-        })
+    def notify_trade(
+        self,
+        side,
+        symbol,
+        qty,
+        price,
+        strategy,
+        reason,
+        all_strategy_signals=None,
+        pnl=None,
+    ):
+        self._trade_buffer.append(
+            {
+                "side": side,
+                "symbol": symbol,
+                "qty": qty,
+                "price": price,
+                "strategy": strategy,
+                "reason": reason,
+                "all_strategy_signals": all_strategy_signals,
+                "pnl": pnl,
+            }
+        )
 
     def notify_risk_rejection(self, symbol, strategy, action, reasons):
-        self._rejection_buffer.append({
-            "symbol": symbol, "strategy": strategy,
-            "action": action, "reasons": reasons,
-        })
+        self._rejection_buffer.append(
+            {
+                "symbol": symbol,
+                "strategy": strategy,
+                "action": action,
+                "reasons": reasons,
+            }
+        )
 
     def flush_trades(self):
         if self.notify_frequency == "realtime":
@@ -555,7 +665,8 @@ class BatchingNotifier(Notifier):
             if count:
                 logger.info(
                     "Suppressed %d trade notification(s) (notify_frequency=%s)",
-                    count, self.notify_frequency,
+                    count,
+                    self.notify_frequency,
                 )
 
         self._trade_buffer.clear()
@@ -568,9 +679,7 @@ class BatchingNotifier(Notifier):
         (console, SNS/SES) receives the batched email.
         """
         targets = (
-            self.inner.notifiers
-            if hasattr(self.inner, "notifiers")
-            else [self.inner]
+            self.inner.notifiers if hasattr(self.inner, "notifiers") else [self.inner]
         )
         for n in targets:
             if hasattr(n, "_send_html_email"):
@@ -649,13 +758,26 @@ class BatchingNotifier(Notifier):
     def notify_stop_triggered(self, symbol, current_price, stop_price, pnl):
         self.inner.notify_stop_triggered(symbol, current_price, stop_price, pnl)
 
-    def notify_daily_summary(self, equity, daily_pnl, trades_today,
-                             open_positions, benchmark_data=None,
-                             positions_detail=None, cash=None,
-                             max_positions=12):
+    def notify_daily_summary(
+        self,
+        equity,
+        daily_pnl,
+        trades_today,
+        open_positions,
+        benchmark_data=None,
+        positions_detail=None,
+        cash=None,
+        max_positions=12,
+    ):
         self.inner.notify_daily_summary(
-            equity, daily_pnl, trades_today, open_positions,
-            benchmark_data, positions_detail, cash, max_positions,
+            equity,
+            daily_pnl,
+            trades_today,
+            open_positions,
+            benchmark_data,
+            positions_detail,
+            cash,
+            max_positions,
         )
 
     def notify_weekly_digest(self, digest_text):

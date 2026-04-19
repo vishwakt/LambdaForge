@@ -38,6 +38,7 @@ def is_market_open(now: datetime | None = None) -> bool:
         now = datetime.now(ET)
     elif now.tzinfo is None:
         from zoneinfo import ZoneInfo
+
         now = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(ET)
     else:
         now = now.astimezone(ET)

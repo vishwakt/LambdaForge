@@ -16,7 +16,7 @@ SELL when:
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class RSIMACDConfluenceStrategy(Strategy):
@@ -163,7 +163,7 @@ class RSIMACDConfluenceStrategy(Strategy):
             rsi_now < self.rsi_oversold
             and rsi_rising  # RSI recovering (not still falling)
             and hist_rising  # MACD momentum turning positive
-            and in_uptrend   # Long-term trend is up
+            and in_uptrend  # Long-term trend is up
         ):
             # Confidence: stronger when RSI is more oversold + MACD crossover
             base_conf = 0.5 + (self.rsi_oversold - rsi_now) / 70
@@ -181,7 +181,7 @@ class RSIMACDConfluenceStrategy(Strategy):
                     f"price ${current_price:.2f} > SMA200 ${trend_value:.2f}"
                 ),
                 entry_price=current_price,
-                stop_loss=round(current_price * 0.96, 2),   # 4% stop
+                stop_loss=round(current_price * 0.96, 2),  # 4% stop
                 take_profit=round(current_price * 1.08, 2),  # 8% target (2:1 R/R)
                 metadata=metadata,
             )
@@ -200,8 +200,7 @@ class RSIMACDConfluenceStrategy(Strategy):
                 action=Action.HOLD,
                 confidence=0.3,
                 reason=(
-                    f"RSI oversold ({rsi_now:.1f}) but missing: "
-                    f"{', '.join(missing)}"
+                    f"RSI oversold ({rsi_now:.1f}) but missing: {', '.join(missing)}"
                 ),
                 metadata=metadata,
             )

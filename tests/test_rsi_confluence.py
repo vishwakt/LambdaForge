@@ -1,10 +1,7 @@
 """Tests for RSI Confluence Strategy."""
 
-import numpy as np
-import pandas as pd
-
-from src.strategies.rsi_confluence import RSIConfluenceStrategy
 from src.strategies.base import Action
+from src.strategies.rsi_confluence import RSIConfluenceStrategy
 
 
 class TestRSIConfluenceStrategy:

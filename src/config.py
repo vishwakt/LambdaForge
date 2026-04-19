@@ -12,25 +12,39 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 @dataclass
 class RiskConfig:
-    max_position_pct: float = 0.05        # 5% of portfolio per trade
-    daily_loss_limit_pct: float = 0.02    # Stop trading if down 2% today
-    max_open_positions: int = 12          # Max simultaneous positions
-    min_confidence: float = 0.5           # Minimum signal confidence to act
-    trailing_stop_pct: float = 0.05       # 5% trailing stop (percentage mode)
-    max_concentration_pct: float = 0.15   # Max 15% of portfolio in one symbol
+    max_position_pct: float = 0.05  # 5% of portfolio per trade
+    daily_loss_limit_pct: float = 0.02  # Stop trading if down 2% today
+    max_open_positions: int = 12  # Max simultaneous positions
+    min_confidence: float = 0.5  # Minimum signal confidence to act
+    trailing_stop_pct: float = 0.05  # 5% trailing stop (percentage mode)
+    max_concentration_pct: float = 0.15  # Max 15% of portfolio in one symbol
 
 
 @dataclass
 class SchedulerConfig:
-    run_time: str = "09:45"               # HH:MM Eastern (after market open)
-    monitor_interval_min: int = 1          # Stop-loss check interval in minutes
-    symbols: list = field(default_factory=lambda: [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
-        "META", "NVDA", "SPY", "QQQ", "AMD",
-    ])
-    strategies: list = field(default_factory=lambda: [
-        "macd", "bollinger", "zscore",
-    ])
+    run_time: str = "09:45"  # HH:MM Eastern (after market open)
+    monitor_interval_min: int = 1  # Stop-loss check interval in minutes
+    symbols: list = field(
+        default_factory=lambda: [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "TSLA",
+            "META",
+            "NVDA",
+            "SPY",
+            "QQQ",
+            "AMD",
+        ]
+    )
+    strategies: list = field(
+        default_factory=lambda: [
+            "macd",
+            "bollinger",
+            "zscore",
+        ]
+    )
     days_of_data: int = 200
 
 
@@ -39,9 +53,9 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     db_path: str = str(PROJECT_ROOT / "trades.db")
-    trading_mode: str = "paper"           # "paper" or "live"
-    notifier: str = "console"             # "console", "sns", "console+sns"
-    notify_frequency: str = "hourly"       # "realtime", "hourly", "daily"
+    trading_mode: str = "paper"  # "paper" or "live"
+    notifier: str = "console"  # "console", "sns", "console+sns"
+    notify_frequency: str = "hourly"  # "realtime", "hourly", "daily"
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -99,7 +113,8 @@ def load_config(config_path: str | None = None) -> AppConfig:
 
     # SSM Parameter Store overrides (highest priority, Lambda only)
     try:
-        from src.ssm_config import load_ssm_params, apply_ssm_params
+        from src.ssm_config import apply_ssm_params, load_ssm_params
+
         ssm_params = load_ssm_params()
         if ssm_params:
             apply_ssm_params(config, ssm_params)

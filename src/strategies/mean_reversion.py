@@ -7,7 +7,7 @@ SELL when Z > entry_z (statistically overbought).
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class MeanReversionStrategy(Strategy):

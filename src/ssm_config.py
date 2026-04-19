@@ -19,17 +19,17 @@ _cache_loaded: bool = False
 
 # Mapping: SSM param name (after prefix strip) → (config section, field, type)
 _PARAM_MAP = {
-    "trading_mode":       ("app", "trading_mode", str),
-    "alpaca_api_key":     ("env", "ALPACA_API_KEY", str),
-    "alpaca_secret_key":  ("env", "ALPACA_SECRET_KEY", str),
+    "trading_mode": ("app", "trading_mode", str),
+    "alpaca_api_key": ("env", "ALPACA_API_KEY", str),
+    "alpaca_secret_key": ("env", "ALPACA_SECRET_KEY", str),
     "notification_email": ("env", "NOTIFICATION_EMAIL", str),
-    "max_positions":      ("risk", "max_open_positions", int),
-    "trailing_stop_pct":  ("risk", "trailing_stop_pct", float),
-    "max_concentration":  ("risk", "max_concentration_pct", float),
-    "max_daily_loss":     ("risk", "daily_loss_limit_pct", float),
-    "min_confidence":     ("risk", "min_confidence", float),
-    "monitor_interval":   ("scheduler", "monitor_interval_min", int),
-    "notify_frequency":   ("app", "notify_frequency", str),
+    "max_positions": ("risk", "max_open_positions", int),
+    "trailing_stop_pct": ("risk", "trailing_stop_pct", float),
+    "max_concentration": ("risk", "max_concentration_pct", float),
+    "max_daily_loss": ("risk", "daily_loss_limit_pct", float),
+    "min_confidence": ("risk", "min_confidence", float),
+    "monitor_interval": ("scheduler", "monitor_interval_min", int),
+    "notify_frequency": ("app", "notify_frequency", str),
 }
 
 

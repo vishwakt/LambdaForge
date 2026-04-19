@@ -1,0 +1,44 @@
+[tool.ruff]
+# Target Python 3.9 to match Lambda runtime (public.ecr.aws/lambda/python:3.9).
+target-version = "py39"
+line-length = 88
+extend-exclude = [
+    ".sam-build",
+    ".aws-sam",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# Start conservative — pyflakes bugs, pycodestyle errors, import ordering.
+# Tighten later once the codebase stays clean for a few releases.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade — catches outdated syntax when we bump Python
+    "B",   # flake8-bugbear — real-world correctness checks
+]
+ignore = [
+    "E501",  # line-too-long — ruff format handles this; don't double-flag
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]

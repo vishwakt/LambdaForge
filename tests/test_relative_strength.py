@@ -1,10 +1,7 @@
 """Tests for Relative Strength vs SPY Strategy."""
 
-import numpy as np
-import pandas as pd
-
-from src.strategies.relative_strength import RelativeStrengthStrategy
 from src.strategies.base import Action
+from src.strategies.relative_strength import RelativeStrengthStrategy
 
 
 class TestRelativeStrengthStrategy:
@@ -13,12 +10,12 @@ class TestRelativeStrengthStrategy:
     def _make_strategy(self, **kwargs):
         return RelativeStrengthStrategy(**kwargs)
 
-    def _make_bars_with_spy(self, sample_bars, n=200, stock_trend="flat",
-                            spy_trend="flat", seed=42):
+    def _make_bars_with_spy(
+        self, sample_bars, n=200, stock_trend="flat", spy_trend="flat", seed=42
+    ):
         """Create stock bars with aligned SPY data."""
         stock_bars = sample_bars(n=n, trend=stock_trend, seed=seed)
-        spy_bars = sample_bars(n=n, trend=spy_trend, seed=seed + 1,
-                               start_price=450.0)
+        spy_bars = sample_bars(n=n, trend=spy_trend, seed=seed + 1, start_price=450.0)
         return stock_bars, spy_bars
 
     def test_strategy_name(self):
@@ -73,8 +70,9 @@ class TestRelativeStrengthStrategy:
         """Stock trending up while SPY flat should show bullish RS."""
         bars = sample_bars(n=200, trend="up", volatility=0.01)
         strategy = self._make_strategy()
-        spy_bars = sample_bars(n=200, trend="flat", start_price=450.0,
-                               volatility=0.005, seed=99)
+        spy_bars = sample_bars(
+            n=200, trend="flat", start_price=450.0, volatility=0.005, seed=99
+        )
         strategy.set_spy_bars(spy_bars)
         signal = strategy.generate_signal("AAPL", bars)
         # RS ratio should be above MA if stock is outperforming
@@ -85,8 +83,9 @@ class TestRelativeStrengthStrategy:
         """Stock trending down while SPY flat should show bearish RS."""
         bars = sample_bars(n=200, trend="down", volatility=0.01)
         strategy = self._make_strategy()
-        spy_bars = sample_bars(n=200, trend="up", start_price=450.0,
-                               volatility=0.005, seed=99)
+        spy_bars = sample_bars(
+            n=200, trend="up", start_price=450.0, volatility=0.005, seed=99
+        )
         strategy.set_spy_bars(spy_bars)
         signal = strategy.generate_signal("AAPL", bars)
         # Should not generate BUY for underperforming stock

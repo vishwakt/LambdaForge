@@ -1,10 +1,7 @@
 """Tests for EMA Crossover Strategy."""
 
-import numpy as np
-import pandas as pd
-
-from src.strategies.ema_crossover import EMACrossoverStrategy
 from src.strategies.base import Action
+from src.strategies.ema_crossover import EMACrossoverStrategy
 
 
 class TestEMACrossoverStrategy:
@@ -67,7 +64,10 @@ class TestEMACrossoverStrategy:
         signal = strategy.generate_signal("AAPL", bars)
         # With such a sharp drop, fast EMA should cross below slow EMA
         if signal.action == Action.SELL:
-            assert "crossover" in signal.reason.lower() or "bearish" in signal.reason.lower()
+            assert (
+                "crossover" in signal.reason.lower()
+                or "bearish" in signal.reason.lower()
+            )
 
     def test_bullish_crossover_needs_strong_trend(self, sample_bars):
         """Bullish crossover with weak ADX should be HOLD, not BUY."""

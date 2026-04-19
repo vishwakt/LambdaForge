@@ -54,7 +54,9 @@ def _equity_curve(snapshots: list[dict], width: int = 40) -> str:
     # Date labels
     first_date = snapshots[0]["date"][5:]  # MM-DD
     last_date = snapshots[-1]["date"][5:]
-    lines.append(f"  {' ' * 12}{first_date}{' ' * (width - len(first_date) - len(last_date))}{last_date}")
+    lines.append(
+        f"  {' ' * 12}{first_date}{' ' * (width - len(first_date) - len(last_date))}{last_date}"
+    )
 
     return "\n".join(lines)
 
@@ -108,15 +110,15 @@ def generate_weekly_digest(
 
     # Best / worst trades
     week_trades = trade_log.get_trades_for_period(monday, friday)
-    sell_trades = [t for t in week_trades if t["side"] == "sell" and t.get("pnl") is not None]
+    sell_trades = [
+        t for t in week_trades if t["side"] == "sell" and t.get("pnl") is not None
+    ]
     best = max(sell_trades, key=lambda t: t["pnl"]) if sell_trades else None
     worst = min(sell_trades, key=lambda t: t["pnl"]) if sell_trades else None
 
     # Rejections
     rejections = trade_log.get_recent_rejections(limit=100)
-    week_rejections = [
-        r for r in rejections if r["timestamp"][:10] >= monday
-    ]
+    week_rejections = [r for r in rejections if r["timestamp"][:10] >= monday]
 
     # --- Assemble report ---
     sections = [
@@ -159,16 +161,11 @@ def generate_weekly_digest(
     sections.append("")
     sections.append("TRADE ACTIVITY")
     sections.append(f"  Total Trades:  {stats['total_trades']}")
-    sections.append(f"  Win Rate:      {stats['win_rate']:.0%} "
-                    f"({stats['wins']}/{stats['closed_trades']})")
+    sections.append(
+        f"  Win Rate:      {stats['win_rate']:.0%} "
+        f"({stats['wins']}/{stats['closed_trades']})"
+    )
     if stats["closed_trades"] > 0:
-        avg_win = (stats["total_pnl"] / stats["wins"]) if stats["wins"] else 0
-        avg_loss = 0
-        if stats["losses"] > 0:
-            # Compute avg loss from total_pnl and avg_win
-            avg_loss = (
-                (stats["total_pnl"] - avg_win * stats["wins"]) / stats["losses"]
-            ) if stats["losses"] else 0
         sections.append(f"  Total P&L:     ${stats['total_pnl']:+,.2f}")
 
     # Best / worst
@@ -194,10 +191,7 @@ def generate_weekly_digest(
             "\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"
         )
         sections.append(
-            "  \u2502 Strategy   "
-            "\u2502 Trades "
-            "\u2502 Win Rate "
-            "\u2502 P&L      \u2502"
+            "  \u2502 Strategy   \u2502 Trades \u2502 Win Rate \u2502 P&L      \u2502"
         )
         sections.append(
             "  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"

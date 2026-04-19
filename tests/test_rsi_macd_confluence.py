@@ -1,7 +1,7 @@
 """Tests for RSI + MACD Confluence Strategy."""
 
-from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
 from src.strategies.base import Action
+from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
 
 
 class TestRSIMACDConfluenceStrategy:
@@ -71,8 +71,12 @@ class TestRSIMACDConfluenceStrategy:
         """Custom RSI/MACD parameters should work."""
         bars = sample_bars(n=250)
         strategy = self._make_strategy(
-            rsi_period=10, rsi_oversold=25, rsi_overbought=75,
-            macd_fast=8, macd_slow=21, macd_signal=5,
+            rsi_period=10,
+            rsi_oversold=25,
+            rsi_overbought=75,
+            macd_fast=8,
+            macd_slow=21,
+            macd_signal=5,
         )
         signal = strategy.generate_signal("AAPL", bars)
         assert signal is not None

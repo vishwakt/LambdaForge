@@ -20,7 +20,7 @@ by fetching SPY bars alongside the target symbol.
 
 import pandas as pd
 
-from src.strategies.base import Strategy, Signal, Action
+from src.strategies.base import Action, Signal, Strategy
 
 
 class RelativeStrengthStrategy(Strategy):
@@ -120,8 +120,8 @@ class RelativeStrengthStrategy(Strategy):
         in_uptrend = current_price > sma_now
 
         # Relative strength percentile (where is RS vs its recent range)
-        rs_min = rs_ratio.iloc[-self.rs_period:].min()
-        rs_max = rs_ratio.iloc[-self.rs_period:].max()
+        rs_min = rs_ratio.iloc[-self.rs_period :].min()
+        rs_max = rs_ratio.iloc[-self.rs_period :].max()
         rs_range = rs_max - rs_min
         rs_pctile = ((rs_now - rs_min) / rs_range * 100) if rs_range > 0 else 50
 
@@ -169,7 +169,7 @@ class RelativeStrengthStrategy(Strategy):
                     f"Outperforming SPY in uptrend."
                 ),
                 entry_price=current_price,
-                stop_loss=round(current_price * 0.95, 2),   # 5% stop
+                stop_loss=round(current_price * 0.95, 2),  # 5% stop
                 take_profit=round(current_price * 1.10, 2),  # 10% target (2:1 R/R)
                 metadata=metadata,
             )
