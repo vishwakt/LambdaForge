@@ -443,10 +443,14 @@ class TradeLog:
             ).fetchall()
             pnl_values = [r["pnl"] for r in pnl_rows]
 
-            wins = sum(1 for p in pnl_values if p > 0)
-            losses = sum(1 for p in pnl_values if p <= 0)
+            win_pnls = [p for p in pnl_values if p > 0]
+            loss_pnls = [p for p in pnl_values if p <= 0]
+            wins = len(win_pnls)
+            losses = len(loss_pnls)
             total_pnl = sum(pnl_values) if pnl_values else 0.0
             avg_pnl = total_pnl / len(pnl_values) if pnl_values else 0.0
+            avg_win = sum(win_pnls) / wins if wins else 0.0
+            avg_loss = sum(loss_pnls) / losses if losses else 0.0
             best = max(pnl_values) if pnl_values else 0.0
             worst = min(pnl_values) if pnl_values else 0.0
             win_rate = wins / len(pnl_values) if pnl_values else 0.0
@@ -460,6 +464,8 @@ class TradeLog:
                 "losses": losses,
                 "total_pnl": round(total_pnl, 2),
                 "avg_pnl": round(avg_pnl, 2),
+                "avg_win": round(avg_win, 2),
+                "avg_loss": round(avg_loss, 2),
                 "best_trade": round(best, 2),
                 "worst_trade": round(worst, 2),
                 "win_rate": round(win_rate, 4),

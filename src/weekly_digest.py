@@ -167,6 +167,8 @@ def generate_weekly_digest(
     )
     if stats["closed_trades"] > 0:
         sections.append(f"  Total P&L:     ${stats['total_pnl']:+,.2f}")
+        sections.append(f"  Avg Win:       ${stats['avg_win']:+,.2f}")
+        sections.append(f"  Avg Loss:      ${stats['avg_loss']:+,.2f}")
 
     # Best / worst
     if best:
