@@ -4,9 +4,10 @@
 
 **Serverless algorithmic trading — forged on AWS Lambda.**
 
-[![CI](https://github.com/vishwakt/LambdaForge/actions/workflows/deploy.yml/badge.svg)](https://github.com/vishwakt/LambdaForge/actions)
-[![Python](https://img.shields.io/badge/python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![CI](https://github.com/vishwakt/LambdaForge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vishwakt/LambdaForge/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/serverless/sam/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Cost](https://img.shields.io/badge/cost-~%240%2Fmonth-22c55e)](https://aws.amazon.com/free/)
 
