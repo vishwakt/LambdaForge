@@ -1,0 +1,36 @@
+# LambdaForge — Code Ownership
+#
+# This file declares who's responsible for reviewing changes to different
+# parts of the codebase. When combined with branch protection rules on
+# `main` ("Require review from Code Owners"), it ensures that:
+#
+#   1. PRs to protected paths automatically request review from the
+#      relevant owner.
+#   2. PRs cannot be merged without at least one code-owner approval.
+#
+# Syntax: gitignore-style patterns followed by @github-username.
+# See: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default — anything not matched below falls through to the repo owner.
+*                           @vishwakt
+
+# ── Trading-critical code ────────────────────────────────────────────────────
+# Changes here can lose real money. Always require owner review, even with
+# future collaborators.
+/src/risk.py                @vishwakt
+/src/scheduler.py           @vishwakt
+/src/client.py              @vishwakt
+/src/strategies/            @vishwakt
+/src/market_hours.py        @vishwakt
+
+# ── Infrastructure / deployment ──────────────────────────────────────────────
+/template.yaml              @vishwakt
+/Dockerfile                 @vishwakt
+/.github/workflows/         @vishwakt
+/iam-*-policy.template.json @vishwakt
+/samconfig.toml.example     @vishwakt
+
+# ── Security / governance ────────────────────────────────────────────────────
+/.github/CODEOWNERS         @vishwakt
+/.github/SECURITY.md        @vishwakt
+/LICENSE                    @vishwakt

@@ -32,3 +32,5 @@ samconfig.toml
 CONTEXT.md
 iam-deployer-policy.json
 iam-ops-policy.json
+docs/LAUNCH.md
+docs/eb1a-evidence/
