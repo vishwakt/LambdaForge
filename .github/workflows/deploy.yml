@@ -9,6 +9,15 @@ on:
   # (e.g., after an IAM/OIDC fix or an SSM parameter update).
   workflow_dispatch:
 
+# Serialize deploys targeting the same CloudFormation stack. Without this,
+# back-to-back pushes (e.g. merging multiple Dependabot PRs in quick
+# succession) can race and fail with "Stack is in UPDATE_IN_PROGRESS".
+# Queue, don't cancel — killing an in-flight SAM deploy mid-changeset
+# is worse than waiting.
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-east-1
   SAM_STACK_NAME: stock-trading-bot

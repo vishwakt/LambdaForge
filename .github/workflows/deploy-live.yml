@@ -8,6 +8,13 @@ on:
         required: true
         type: string
 
+# Serialize deploys targeting the same CloudFormation stack. Paired with the
+# DEPLOY-LIVE confirmation input, this means a live deploy also can't race
+# against itself if someone fires workflow_dispatch twice.
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-east-1
   SAM_STACK_NAME: stock-trading-bot-live
