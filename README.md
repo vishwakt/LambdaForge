@@ -32,12 +32,12 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
                     └──────────────┬──────────────────────┘
                                    │
                     ┌──────────────▼──────────────────────┐
-                    │         AWS Lambda (ARM64)           │
-                    │  • Scans 200+ symbols                │
-                    │  • Runs 7 trading strategies         │
-                    │  • Enforces 6 risk rules             │
-                    │  • Places orders via Alpaca          │
-                    │  • Sends email digest                │
+                    │        AWS Lambda (ARM64)           │
+                    │  • Scans 200+ symbols               │
+                    │  • Runs 7 trading strategies        │
+                    │  • Enforces 6 risk rules            │
+                    │  • Places orders via Alpaca         │
+                    │  • Sends email digest               │
                     └──────────────┬──────────────────────┘
                                    │
           ┌────────────────────────┼──────────────────────┐
