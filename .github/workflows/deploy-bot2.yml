@@ -59,7 +59,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up QEMU for ARM builds
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
 
