@@ -46,7 +46,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
    │  S3 Bucket  │        │  SSM Params  │       │  Alpaca API  │
    │  trades.db  │        │  (no deploy  │       │  paper/live  │
    │  persisted  │        │   needed)    │       │              │
-   └─────────────┘        └─────────────┘       └─────────────┘
+   └─────────────┘        └──────────────┘       └──────────────┘
 ```
 
 ---
