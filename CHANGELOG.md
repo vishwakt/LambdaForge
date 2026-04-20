@@ -35,15 +35,19 @@ it is the same codebase that has been running the author's paper-trading account
 
 ### Features
 
-#### Trading strategies (5 built-in)
-- **RSI + MACD Confluence** — two-indicator agreement for high-confidence entries
-- **Relative Strength vs SPY** — ride sector winners, skip laggards
-- **EMA Crossover** — classic trend-following with configurable fast/slow periods
-- **Mean Reversion (Bollinger)** — buy the dip on oversold bands
-- **Pure RSI Confluence** — multi-timeframe RSI agreement
+#### Trading strategies (7 built-in)
+- **MACD Crossover** — 12/26 EMA + signal-line momentum, tuned for trending markets
+- **Bollinger Squeeze** — band compression then breakout, tuned for volatility expansion
+- **Z-Score Mean Reversion** — 50-day Z-score oversold entries, tuned for range-bound markets
+- **RSI Confluence** — multi-timeframe RSI agreement with uptrend and volume filters
+- **EMA Crossover + ADX** — 9/21 EMA cross gated on ADX > 25 to skip whipsaws
+- **RSI + MACD Confluence** — two-indicator agreement for high-confidence reversal signals
+- **Relative Strength vs SPY** — ride stocks outperforming the market on a rolling basis
 
-Every strategy is a pure function returning `dict[str, float]` signals. Adding a new
-strategy takes ~50 lines of Python + a test file — see
+Every strategy subclasses the `Strategy` ABC, which defines
+`generate_signal(symbol, bars) -> Signal`. Signals carry action, confidence,
+stop_loss, take_profit, and a human-readable reason. Adding a new strategy
+takes ~50 lines of Python + a test file — see
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
 #### Risk management (6 rules)
