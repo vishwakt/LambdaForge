@@ -1,10 +1,12 @@
-# v1.0 Implementation Plan — MCP + REST + Local UI
+# v2 Implementation Plan — MCP + REST + Local UI
 
 Companion to [MCP-ARCHITECTURE.md](MCP-ARCHITECTURE.md). One section per branch. Each branch ships as one atomic PR.
 
+> **Release strategy:** `v2` is the codename for the agent-layer initiative. All seven phases land on `main` as `[Unreleased]` changelog entries; once Phase 7 ships, the whole initiative is cut as a single semver **`0.2.0`** release. No per-phase tags, no patch versions in between — one launch moment, one announcement.
+
 ## Conventions
 
-- **Branch names:** `v1/<phase-name>`, lowercase, dash-separated.
+- **Branch names:** `v2/<phase-name>`, lowercase, dash-separated.
 - **Commits:** conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`).
 - **Tests:** colocated under `tests/<module>/test_*.py`. Every new public function has a test.
 - **Type safety:** `mypy --strict` must pass on all new code under `src/api/` and `src/service/`.
@@ -12,7 +14,7 @@ Companion to [MCP-ARCHITECTURE.md](MCP-ARCHITECTURE.md). One section per branch.
 
 ---
 
-## Phase 1 — `v1/service-layer`
+## Phase 1 — `v2/service-layer`
 
 **Goal:** extract a transport-agnostic typed core. Nothing in this phase knows what HTTP or MCP is.
 
@@ -48,7 +50,7 @@ Companion to [MCP-ARCHITECTURE.md](MCP-ARCHITECTURE.md). One section per branch.
 - [ ] `from src.service import get_account` works with zero HTTP/MCP imports
 - [ ] `mypy --strict src/service/ src/api/schemas.py src/api/errors.py` passes
 - [ ] No `print()` calls; all logging through the existing `stock-trader` logger
-- [ ] `place_manual_order` raises `ApiError(code="live_trading_disabled")` when `trading_mode == "live"` in v1.0
+- [ ] `place_manual_order` raises `ApiError(code="live_trading_disabled")` when `trading_mode == "live"` in v2
 - [ ] New runtime deps: `pydantic>=2.5`
 - [ ] New dev deps: `moto[s3,ssm]`, `pytest-mock`
 
@@ -57,7 +59,7 @@ All other phases.
 
 ---
 
-## Phase 2 — `v1/auth-and-config`
+## Phase 2 — `v2/auth-and-config`
 
 **Goal:** API key, confirmation tokens, config paths.
 
@@ -91,7 +93,7 @@ Phases 3, 4.
 
 ---
 
-## Phase 3 — `v1/mcp-stdio`
+## Phase 3 — `v2/mcp-stdio`
 
 **Goal:** MCP server over stdio that wraps every service function as a tool.
 
@@ -129,7 +131,7 @@ Phase 7 (CLI orchestration).
 
 ---
 
-## Phase 4 — `v1/rest-api`
+## Phase 4 — `v2/rest-api`
 
 **Goal:** FastAPI server with the same surface as MCP, plus SSE streams.
 
@@ -173,7 +175,7 @@ Phases 5, 6, 7.
 
 ---
 
-## Phase 5 — `v1/backtest-jobs`
+## Phase 5 — `v2/backtest-jobs`
 
 **Goal:** async job model. Reusable for any long-running task.
 
@@ -197,14 +199,14 @@ Phases 5, 6, 7.
 - [ ] Statuses: `pending`, `running`, `completed`, `failed`, `cancelled`
 - [ ] Progress is 0–100 integer, monotonically non-decreasing
 - [ ] Jobs auto-expire from the in-memory store 1 hour after completion
-- [ ] Job persistence is **explicitly out of scope** — server restart loses job history (acceptable for v1.0; v1.1 puts this in DynamoDB)
+- [ ] Job persistence is **explicitly out of scope** — server restart loses job history (acceptable for v2; v3 puts this in DynamoDB)
 
 ### Dependencies blocked by this phase
 Phase 6 (UI backtest screen).
 
 ---
 
-## Phase 6 — `v1/ui`
+## Phase 6 — `v2/ui`
 
 **Goal:** React SPA, bundled into the Python package at build time.
 
@@ -250,7 +252,7 @@ Build output: `ui/dist/` → copied to `src/static/dist/` during packaging.
 - Vite + React 18 + TypeScript strict
 - TanStack Query for data fetching/caching
 - Recharts for P&L curves
-- Tailwind for styling (lightweight, no design system needed for v1.0)
+- Tailwind for styling (lightweight, no design system needed for v2)
 - Vitest for tests
 
 ### Tests
@@ -274,7 +276,7 @@ Phase 7.
 
 ---
 
-## Phase 7 — `v1/cli-and-packaging`
+## Phase 7 — `v2/cli-and-packaging`
 
 **Goal:** one command, one process, browser opens.
 
@@ -317,24 +319,24 @@ lambdaforge --version
 - [ ] README quickstart works end-to-end on a fresh machine
 
 ### Dependencies blocked by this phase
-None. v1.0 is shippable.
+None. v2 is shippable.
 
 ---
 
-## Out of scope for v1.0 (deferred)
+## Out of scope for v2 (deferred)
 
-- Live trading from `place_manual_order` (paper only in v1.0; lifted in v1.1 with stricter gating)
-- Self-hosting on user's AWS — entire scope of v1.1
-- Persistent job store — v1.1 (jobs use DynamoDB once that exists)
-- Multi-user RBAC — v1.1
-- Tauri native wrapper — v1.2
-- WebSocket transport (SSE covers v1.0 needs)
+- Live trading from `place_manual_order` (paper only in v2; lifted in v3 with stricter gating)
+- Self-hosting on user's AWS — entire scope of v3
+- Persistent job store — v3 (jobs use DynamoDB once that exists)
+- Multi-user RBAC — v3
+- Tauri native wrapper — v4
+- WebSocket transport (SSE covers v2 needs)
 - Mobile UI
 
 ## Critical risks
 
 1. **MCP SDK API stability** — `mcp` Python SDK is pre-1.0. Pin to a specific version in `pyproject.toml` and revisit at each phase boundary.
-2. **SSE behind corporate proxies** — some users may have proxies that buffer SSE. Document polling fallback in README; don't engineer for it in v1.0.
+2. **SSE behind corporate proxies** — some users may have proxies that buffer SSE. Document polling fallback in README; don't engineer for it in v2.
 3. **Confirmation token UX in CLI/Postman** — power users hitting the API directly will hit the 409→token flow. Document clearly in `/openapi.json` description.
 4. **trades.db cache staleness** — 30s TTL means UI can show data up to 30s old. Acceptable for trade history (historical); positions/P&L use Alpaca live data, not SQLite, so no staleness there.
 

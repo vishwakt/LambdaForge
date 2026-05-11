@@ -49,7 +49,15 @@ Local-first. Your AWS, your Alpaca keys, your machine. No SaaS, no hosting fees.
 
 ## Roadmap
 
-### v1.0 — Local-only (target: 2 weekends)
+| Codename | Semver | Scope | Target |
+|---|---|---|---|
+| **v2** | `0.2.0` | Local-only agent layer (this initiative) | 2 weekends |
+| **v3** | `0.3.0` | Self-host bundle on user's AWS | 1 weekend after v2 |
+| **v4** | `0.4.0` | Native polish (Tauri) | Signal-dependent |
+
+Codenames track the agent-layer initiative; semver versions track the project release line (current shipped release: `0.1.0`).
+
+### v2 — Local-only · semver `0.2.0` · target: 2 weekends
 
 - Stdio MCP server exposing ~25 typed tools
 - FastAPI REST with auto-generated OpenAPI spec
@@ -59,11 +67,11 @@ Local-first. Your AWS, your Alpaca keys, your machine. No SaaS, no hosting fees.
 - Async job model for backtests
 - `trades.db` cached locally, refreshed from S3 every 30s via `If-Modified-Since`
 
-**Constraint:** all mutations to live trading are gated behind explicit confirmation. Manual order placement is paper-mode only in v1.0.
+**Constraint:** all mutations to live trading are gated behind explicit confirmation. Manual order placement is paper-mode only in v2.
 
 **Launch hook:** "MCP-native trading lab — talk to your bot from Claude Desktop."
 
-### v1.1 — Self-host bundle (target: 1 weekend after v1.0)
+### v3 — Self-host bundle · semver `0.3.0` · target: 1 weekend after v2
 
 - SAM template extension: 2 new Lambdas (REST + MCP-over-HTTPS) behind API Gateway
 - Cognito user pool for proper auth
@@ -72,13 +80,13 @@ Local-first. Your AWS, your Alpaca keys, your machine. No SaaS, no hosting fees.
 
 **Launch hook:** "Now talks to ChatGPT, Gemini, Perplexity, n8n, Zapier, and anything with function calling. Still your AWS, still your data."
 
-### v1.2 — Native polish (later, signal-dependent)
+### v4 — Native polish · semver `0.4.0` · signal-dependent
 
 - Tauri wrapper over the existing web UI (10x smaller than Electron, Rust-backed)
 - AWS account setup wizard
 - Alpaca key paste-and-go flow
 
-Only ship this if v1.0/v1.1 produce real adoption signal (≥50 ⭐/week, real issues from real users).
+Only ship this if v2/v3 produce real adoption signal (≥50 ⭐/week, real issues from real users).
 
 ## Why local-first, not SaaS
 
@@ -86,13 +94,13 @@ Only ship this if v1.0/v1.1 produce real adoption signal (≥50 ⭐/week, real i
 - Software users install and run with their own AWS + Alpaca keys = open-source software (legally clean precedent)
 - The line we do not cross: hosted accounts users sign into
 
-## Tool surface (v1.0)
+## Tool surface (v2)
 
 **Read (~10 tools):** `get_account`, `list_positions`, `get_trade_history` (paginated), `get_daily_pnl` (chart-ready), `list_strategies`, `get_risk_params`, `get_kill_switch_state`, `list_symbols`, `get_rate_limit_hits`, `get_recent_rejections`
 
 **Write config (~5 tools):** `set_risk_param`, `set_monitor_interval`, `add_symbol`/`remove_symbol`, `enable_strategy`/`disable_strategy`, `set_notify_frequency`
 
-**Execute (~6 tools, all gated behind confirmation):** `engage_kill_switch`/`release_kill_switch`, `trigger_daily_scan`, `trigger_stop_monitor`, `switch_trading_mode`, `place_manual_order` (paper-only in v1.0), `cancel_order`/`cancel_all_orders`
+**Execute (~6 tools, all gated behind confirmation):** `engage_kill_switch`/`release_kill_switch`, `trigger_daily_scan`, `trigger_stop_monitor`, `switch_trading_mode`, `place_manual_order` (paper-only in v2), `cancel_order`/`cancel_all_orders`
 
 **Analytics (~2 tools):** `run_backtest` (async, job-based), `get_strategy_signal`
 
