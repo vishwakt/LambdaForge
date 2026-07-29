@@ -63,6 +63,7 @@ def _emit_metric(**fields: object) -> None:
     Logs Insights via: parse @message 'LLM_METRIC *' as payload."""
     logger.info("LLM_METRIC %s", json.dumps(fields, default=str))
 
+
 # Stable module-level constant → prompt-cacheable.
 SYSTEM_PROMPT = (
     "You are one trading strategy among several in an automated trading "
