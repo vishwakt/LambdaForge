@@ -185,6 +185,9 @@ Resources:
       ImageConfig:
         Command:
           - handler.daily_scan_handler
+      # Headroom for the llm strategy: up to 10 API calls x 30s client
+      # timeout on top of the normal scan (global default is 300s).
+      Timeout: 900
       Role: !GetAtt TradingBotRole.Arn
       Events:
         DailySchedule:
