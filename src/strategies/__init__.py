@@ -3,6 +3,7 @@
 from src.strategies.base import Action, Signal, Strategy
 from src.strategies.bollinger import BollingerSqueezeStrategy
 from src.strategies.ema_crossover import EMACrossoverStrategy
+from src.strategies.llm_strategy import LLMStrategy
 from src.strategies.macd import MACDStrategy
 from src.strategies.mean_reversion import MeanReversionStrategy
 from src.strategies.relative_strength import RelativeStrengthStrategy
@@ -17,6 +18,7 @@ STRATEGIES = {
     "ema_crossover": EMACrossoverStrategy,
     "rsi_macd": RSIMACDConfluenceStrategy,
     "relative_strength": RelativeStrengthStrategy,
+    "llm": LLMStrategy,
 }
 
 __all__ = [
@@ -30,5 +32,6 @@ __all__ = [
     "EMACrossoverStrategy",
     "RSIMACDConfluenceStrategy",
     "RelativeStrengthStrategy",
+    "LLMStrategy",
     "STRATEGIES",
 ]

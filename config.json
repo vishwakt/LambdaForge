@@ -13,23 +13,14 @@
     "run_time": "09:30",
     "monitor_interval_min": 1,
     "symbols": [
-      "AAPL",
-      "MSFT",
-      "GOOGL",
-      "AMZN",
-      "TSLA",
-      "META",
-      "NVDA",
       "SPY",
       "QQQ",
-      "AMD",
       "ABBV",
       "ABNB",
       "ABT",
       "ABVX",
       "ACAD",
       "ACMR",
-      "ADBE",
       "AEP",
       "AFRM",
       "AGX",
@@ -41,7 +32,6 @@
       "APP",
       "ARM",
       "ASB",
-      "AVGO",
       "AXP",
       "AXTI",
       "BAC",
@@ -237,6 +227,19 @@
       "bollinger",
       "zscore"
     ],
-    "days_of_data": 200
+    "days_of_data": 200,
+    "llm_symbols": [
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "TSLA",
+      "META",
+      "NVDA",
+      "AMD",
+      "AVGO",
+      "ADBE"
+    ],
+    "llm_max_symbols": 10
   }
 }
