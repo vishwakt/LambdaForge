@@ -16,6 +16,7 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
+from src.archive import archive_previous_month
 from src.config import load_config
 from src.market_hours import is_market_open
 from src.scheduler import TradingEngine
@@ -183,9 +184,23 @@ def eod_snapshot_handler(event, context):
     engine = _get_engine()
     try:
         engine.update_end_of_day()
+        _archive_audit_tables()
         return {"statusCode": 200, "body": "EOD snapshot complete"}
     finally:
         _sync_db_to_s3()
+
+
+def _archive_audit_tables():
+    """Write last month's audit archive (idempotent, fail-open).
+
+    An archive failure must never break the EOD snapshot — log and move on.
+    """
+    if not S3_BUCKET:
+        return
+    try:
+        archive_previous_month(LOCAL_DB_PATH, S3_BUCKET, boto3.client("s3"))
+    except Exception as e:
+        logger.error("Audit archive failed (snapshot unaffected): %s", e)
 
 
 def weekly_digest_handler(event, context):
