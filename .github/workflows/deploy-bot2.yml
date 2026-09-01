@@ -3,8 +3,25 @@ name: Build & Deploy Bot 2
 on:
   push:
     branches: [main]
+    # Docs-only changes never affect deployable artifacts. Skip the
+    # rebuild + ECR push + empty-changeset SAM deploy that would
+    # otherwise burn ~5–8 min of CI per docs merge.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/CODEOWNERS'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/CODEOWNERS'
+      - 'LICENSE'
   # Manual trigger for re-running a deploy without a code change
   # (e.g., after an IAM/OIDC fix or an SSM parameter update).
   workflow_dispatch:
