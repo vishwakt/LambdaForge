@@ -77,6 +77,8 @@
         "s3:PutEncryptionConfiguration",
         "s3:PutBucketPublicAccessBlock",
         "s3:PutLifecycleConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:ListBucketVersions",
         "s3:TagResource"
       ],
       "Resource": [
