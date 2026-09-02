@@ -21,11 +21,32 @@ from src.config import AppConfig, load_config
 from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
 from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
+from src.signal_log import init_signal_db, log_signal, signal_to_row
 from src.strategies import STRATEGIES
 from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
 
 logger = logging.getLogger("stock-trader")
+
+
+def plan_symbol_strategies(
+    symbols: list[str],
+    llm_symbols: list[str],
+    strategies: list[str],
+    llm_max_symbols: int,
+) -> dict[str, list[str]]:
+    """Map each symbol to the strategies allowed to run on it.
+
+    The "llm" strategy is cost-bounded: it runs ONLY on the llm_symbols
+    cohort (hard-capped at llm_max_symbols), never on the general watchlist.
+    Non-llm strategies run only on the general watchlist.
+    """
+    non_llm = [s for s in strategies if s != "llm"]
+    plan = {sym: list(non_llm) for sym in symbols}
+    if "llm" in strategies:
+        for sym in llm_symbols[:llm_max_symbols]:
+            plan[sym] = [*plan.get(sym, []), "llm"]
+    return plan
 
 
 class TradingEngine:
@@ -35,6 +56,7 @@ class TradingEngine:
         self.config = config or load_config()
         self.paper = self.config.trading_mode == "paper"
         self.trade_log = TradeLog(self.config.db_path)
+        init_signal_db(self.config.signals_db_path)
         self.risk_manager = RiskManager(self.config.risk, self.trade_log)
         self.notifier = get_notifier(
             self.config.notifier,
@@ -131,6 +153,9 @@ class TradingEngine:
 
         spy_bars = all_bars.get("SPY")
 
+        sched = self.config.scheduler
+        llm_cohort = set(sched.llm_symbols[: sched.llm_max_symbols])
+
         for pos in open_positions:
             symbol = pos["symbol"]
             bars = all_bars.get(symbol)
@@ -141,10 +166,14 @@ class TradingEngine:
             for strat_name in self.config.scheduler.strategies:
                 if strat_name not in STRATEGIES:
                     continue
+                # Cost bound: llm only ever evaluates its own cohort
+                if strat_name == "llm" and symbol not in llm_cohort:
+                    continue
                 strategy = STRATEGIES[strat_name]()
                 if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
                     strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
+                self._record_signal(signal, strat_name, bars)
 
                 if signal.action == Action.SELL:
                     logger.info(
@@ -156,11 +185,30 @@ class TradingEngine:
                     self._execute_exit(trading_client, pos, signal, strat_name)
                     break
 
+    def _record_signal(self, signal: Signal, strat_name: str, bars) -> None:
+        """Append every decision (HOLDs included) to the signal log.
+
+        Fail-open: a logging failure must never interrupt the scan.
+        """
+        try:
+            price = float(bars["close"].iloc[-1])
+            log_signal(
+                self.config.signals_db_path,
+                signal_to_row(signal, strat_name, price),
+            )
+        except Exception as e:
+            logger.warning(
+                "Signal log write failed for %s/%s: %s", signal.symbol, strat_name, e
+            )
+
     def _scan_for_entries(self, trading_client, account_info, open_positions):
         """Scan watchlist for new BUY signals."""
-        symbols = self.config.scheduler.symbols
+        sched = self.config.scheduler
+        plan = plan_symbol_strategies(
+            sched.symbols, sched.llm_symbols, sched.strategies, sched.llm_max_symbols
+        )
         # Ensure SPY is fetched for relative_strength strategy
-        fetch_symbols = list(symbols)
+        fetch_symbols = list(plan)
         if "SPY" not in fetch_symbols:
             fetch_symbols.append("SPY")
         try:
@@ -173,13 +221,13 @@ class TradingEngine:
 
         spy_bars = all_bars.get("SPY")
 
-        for symbol in symbols:
+        for symbol, symbol_strategies in plan.items():
             bars = all_bars.get(symbol)
             if bars is None or bars.empty:
                 logger.error("No bar data for %s, skipping entry scan", symbol)
                 continue
 
-            for strat_name in self.config.scheduler.strategies:
+            for strat_name in symbol_strategies:
                 if strat_name not in STRATEGIES:
                     continue
                 strategy = STRATEGIES[strat_name]()
@@ -187,6 +235,7 @@ class TradingEngine:
                 if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
                     strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
+                self._record_signal(signal, strat_name, bars)
 
                 if signal.action != Action.BUY:
                     continue
@@ -272,6 +321,10 @@ class TradingEngine:
                 all_strategy_signals = []
                 for sn in self.config.scheduler.strategies:
                     if sn not in STRATEGIES:
+                        continue
+                    # Never re-invoke the llm strategy for notification
+                    # enrichment — each call is a paid API request.
+                    if sn == "llm":
                         continue
                     try:
                         sig = STRATEGIES[sn]().generate_signal(signal.symbol, bars)

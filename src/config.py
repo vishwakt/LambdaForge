@@ -46,6 +46,10 @@ class SchedulerConfig:
         ]
     )
     days_of_data: int = 200
+    # The "llm" strategy runs ONLY on this cohort, never on `symbols`.
+    # Empty list = llm never runs, even if listed in `strategies`.
+    llm_symbols: list = field(default_factory=list)
+    llm_max_symbols: int = 10
 
 
 @dataclass
@@ -53,6 +57,8 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     db_path: str = str(PROJECT_ROOT / "trades.db")
+    # Separate file on purpose — see src/signal_log.py for why.
+    signals_db_path: str = str(PROJECT_ROOT / "signals.db")
     trading_mode: str = "paper"  # "paper" or "live"
     notifier: str = "console"  # "console", "sns", "console+sns"
     notify_frequency: str = "hourly"  # "realtime", "hourly", "daily"
