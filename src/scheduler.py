@@ -387,7 +387,7 @@ class TradingEngine:
     def monitor_stops(self):
         """Full monitoring cycle: stop-losses, strategy exits, and new entries.
 
-        Runs every 2 minutes (configurable). Checks:
+        Runs every monitor_interval_min minutes (default 1). Checks:
         1. Trailing stop-losses on open positions (real-time quotes)
         2. Strategy-based exit signals on open positions (batched bars)
         3. New entry signals across the full watchlist (batched bars)

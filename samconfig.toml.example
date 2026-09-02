@@ -19,7 +19,7 @@ region = "us-east-1"                        # Change if you use a different regi
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
-parameter_overrides = "TradingMode=\"paper\" Environment=\"paper\""
+parameter_overrides = "Environment=\"paper\""
 # image_repositories is auto-populated by `sam deploy --guided` or `--resolve-image-repos`.
 # It will look like:
 # image_repositories = ["DailyScanFunction=YOUR_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/YOUR_REPO/..."]

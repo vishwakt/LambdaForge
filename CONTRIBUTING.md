@@ -102,11 +102,11 @@ Add your strategy to `src/strategies/__init__.py`:
 ```python
 from src.strategies.your_strategy import YourStrategy
 
-STRATEGIES: dict[str, Strategy] = {
-    "macd": MACDStrategy(),
-    "bollinger": BollingerSqueezeStrategy(),
+STRATEGIES = {
+    "macd": MACDStrategy,
+    "bollinger": BollingerSqueezeStrategy,
     # ... existing strategies ...
-    "your_strategy": YourStrategy(),   # add this line
+    "your_strategy": YourStrategy,   # class, not instance — the engine instantiates per scan
 }
 ```
 
@@ -122,12 +122,7 @@ Add your strategy name to `config.json`:
 }
 ```
 
-Or set it at runtime via SSM (no redeploy):
-
-```bash
-aws ssm put-parameter --name "/stock-bot/strategies" \
-  --value "macd,bollinger,your_strategy" --type String --overwrite
-```
+Note: the strategy list is not an SSM parameter — `config.json` is baked into the Lambda image, so enabling a strategy requires a redeploy (push to `main`).
 
 ### 4. Write tests
 
@@ -169,7 +164,7 @@ If you want to add a notification channel (Telegram, Slack, SMS, etc.):
 
 1. Create a class in `src/notifier.py` implementing the `Notifier` ABC
 2. Implement all 5 abstract methods: `notify_trade`, `notify_stop_triggered`, `notify_daily_summary`, `notify_risk_rejection`, `notify_weekly_digest`
-3. Register it in the `get_notifier()` factory function
+3. Add it to the `_NOTIFIER_CLASSES` dict in `src/notifier.py` (the `get_notifier()` factory reads from it)
 4. Add any credentials to SSM Parameter Store (never hardcode)
 5. Update `.env.example` with the new env var
 
@@ -180,7 +175,9 @@ If you want to add a notification channel (Telegram, Slack, SMS, etc.):
 - Functional patterns over classes — pure functions, no mutation
 - Type hints on all function signatures
 - `const` arrow functions... just kidding, this is Python. But keep functions small and single-purpose.
-- `ruff` for linting: `ruff check src/ tests/`
+- `ruff` for lint and formatting — CI runs both, so run both locally:
+  `ruff check src/ tests/ && ruff format --check src/ tests/`
+- CI also runs `pytest` on Python 3.9, 3.11 and 3.12, `sam validate --lint`, and a gitleaks secret scan; all six checks must pass before merge.
 - No hardcoded values — use SSM or `config.json` defaults
 
 ---

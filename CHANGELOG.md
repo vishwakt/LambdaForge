@@ -10,15 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
-  30 days after supersession (the 5 newest are always retained as rollback
-  insurance); incomplete multipart uploads abort after 7 days. Bounds the
-  previously unbounded version growth from every handler run re-uploading the
-  DB. ([#40])
-- **Monthly audit archive to S3 Glacier Deep Archive** — the first end-of-day
-  run of each month exports the full `trades`, `daily_snapshots`, and
-  `risk_rejections` tables to `archive/YYYY-MM.json.gz` (write-once,
-  idempotent). A prefix-scoped lifecycle rule transitions archives straight to
-  Deep Archive and expires them after 7 years. ([#42])
+  a few days after supersession (30 days in [#40], tightened to 3 in [#45]; the
+  5 newest are always retained as rollback insurance); incomplete multipart
+  uploads abort after 7 days. Bounds the previously unbounded version growth
+  from every handler run re-uploading the DB. ([#40], [#45])
+- **Audit archive to S3 Glacier Deep Archive** — the first end-of-day run of
+  each period exports the full `trades`, `daily_snapshots`, and
+  `risk_rejections` tables (write-once, idempotent). Monthly
+  `archive/YYYY-MM.json.gz` in [#42]; weekly `archive/YYYY-Www.json.gz` since
+  [#45]. A prefix-scoped lifecycle rule transitions archives straight to Deep
+  Archive and expires them after 7 years. ([#42], [#45])
 - **Deployer IAM read access for lifecycle verification** — the deployer policy
   template now includes `s3:GetLifecycleConfiguration` and
   `s3:ListBucketVersions` so the CLI user can verify lifecycle state and watch
@@ -29,9 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`trades.db` version retention tightened from 30 to 3 days; audit archive
   cadence monthly → weekly** — measured baseline before cleanup was ~225 GB
   across the three buckets (the monitor uploads a 2–12 MB DB up to once a
-  minute). The DB is cumulative, so a 3-day rollback window plus weekly
-  Glacier exports (`archive/YYYY-Www.json.gz`) loses nothing; steady state
-  drops to ~7.5 GB. ([#45])
+  minute). The DB is cumulative, so the shorter rollback window plus weekly
+  Glacier exports loses nothing; steady state drops to ~7.5 GB. ([#45])
 - **CI: paper and Bot 2 deploy workflows skip on docs-only changes** — pushes
   touching only documentation no longer trigger full Docker build/deploy runs.
   ([#37])
@@ -112,7 +112,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 - **Deployment:** AWS SAM (CloudFormation under the hood). `sam deploy --guided`
   gets you running in ~10 minutes on a fresh AWS account.
 - **Observability:** All decisions logged to CloudWatch with timestamps and
-  reasoning. Log retention configurable via template parameter.
+  reasoning. Log retention is set to 30 days on all log groups (applied via
+  the AWS CLI; not managed by the template).
 - **Persistence:** SQLite trade log synced to/from S3 on every invocation. Versioned,
   encrypted at rest (SSE-S3).
 - **CI/CD:** GitHub Actions pipeline with lint (ruff), test (pytest on Python
@@ -124,7 +125,7 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 
 - [README](README.md) — quick-start, cost breakdown, architecture diagram
 - [ARCHITECTURE.md](ARCHITECTURE.md) — deep-dive on scheduling, risk flow,
-  SSM hierarchy, and the going-live checklist
+  and SSM hierarchy
 - [CONTRIBUTING.md](CONTRIBUTING.md) — including a full guide for adding new
   trading strategies
 - [.github/SECURITY.md](.github/SECURITY.md) — vulnerability reporting + operator
@@ -132,8 +133,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 
 ### Tested on
 
-- **Paper trading:** ~60 days on the author's Alpaca paper account, ~200 symbol
-  watchlist, all 5 strategies enabled.
+- **Paper trading:** ~60 days on the author's Alpaca paper account, 218-symbol
+  watchlist, 3 of the 7 built-in strategies enabled (MACD, Bollinger, Z-Score).
 - **Python versions:** 3.9 (Lambda prod), 3.11, 3.12 (via CI matrix).
 - **Region:** `us-east-1`. Other regions should work — configurable via
   `samconfig.toml` — but untested.

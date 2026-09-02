@@ -22,7 +22,7 @@ Fill in the sections below. Delete any that don't apply.
 ## Checklist
 
 - [ ] I ran `pytest` locally and all tests pass
-- [ ] I ran `ruff check .` and `ruff format --check .` with no errors
+- [ ] I ran `ruff check src/ tests/` and `ruff format --check src/ tests/` with no errors
 - [ ] I added tests for any new behavior
 - [ ] I updated the README / ARCHITECTURE / relevant docs if behavior changed
 - [ ] I did **not** commit secrets, account IDs, API keys, or `.env` files
