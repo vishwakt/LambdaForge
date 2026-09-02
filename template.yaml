@@ -196,6 +196,10 @@ Resources:
           # given timezone, so 09:30 stays 09:30 across DST transitions.
           Type: ScheduleV2
           Properties:
+            # SAM defaults the Scheduler Name to the logical ID, which is the
+            # same in every stack — schedules live in one account-wide group,
+            # so paper/live/bot-2 would collide. Prefix with the stack name.
+            Name: !Sub "${AWS::StackName}-daily-scan"
             ScheduleExpression: cron(30 9 ? * MON-FRI *)
             ScheduleExpressionTimezone: America/New_York
             Description: Daily market scan at 09:30 ET (market open)
@@ -243,6 +247,7 @@ Resources:
         EodScheduleLocal:
           Type: ScheduleV2
           Properties:
+            Name: !Sub "${AWS::StackName}-eod-snapshot"
             ScheduleExpression: cron(55 15 ? * MON-FRI *)
             ScheduleExpressionTimezone: America/New_York
             Description: End-of-day snapshot at 15:55 ET
@@ -265,6 +270,7 @@ Resources:
         WeeklyScheduleLocal:
           Type: ScheduleV2
           Properties:
+            Name: !Sub "${AWS::StackName}-weekly-digest"
             ScheduleExpression: cron(55 15 ? * FRI *)
             ScheduleExpressionTimezone: America/New_York
             Description: Weekly performance digest on Fridays at 15:55 ET
@@ -287,6 +293,7 @@ Resources:
         HourlyScheduleLocal:
           Type: ScheduleV2
           Properties:
+            Name: !Sub "${AWS::StackName}-hourly-digest"
             ScheduleExpression: cron(30 10-15 ? * MON-FRI *)
             ScheduleExpressionTimezone: America/New_York
             Description: Hourly trade activity digest, 10:30-15:30 ET
