@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`trades.db` version retention tightened from 30 to 3 days; audit archive
+  cadence monthly → weekly** — measured baseline before cleanup was ~225 GB
+  across the three buckets (the monitor uploads a 2–12 MB DB up to once a
+  minute). The DB is cumulative, so a 3-day rollback window plus weekly
+  Glacier exports (`archive/YYYY-Www.json.gz`) loses nothing; steady state
+  drops to ~7.5 GB. ([#45])
 - **CI: paper and Bot 2 deploy workflows skip on docs-only changes** — pushes
   touching only documentation no longer trigger full Docker build/deploy runs.
   ([#37])
@@ -34,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#40]: https://github.com/vishwakt/LambdaForge/pull/40
 [#42]: https://github.com/vishwakt/LambdaForge/pull/42
 [#43]: https://github.com/vishwakt/LambdaForge/pull/43
+[#45]: https://github.com/vishwakt/LambdaForge/pull/45
 
 ---
 

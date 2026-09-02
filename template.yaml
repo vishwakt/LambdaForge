@@ -79,7 +79,7 @@ Resources:
             Status: Enabled
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
-          # Monthly audit exports (archive/YYYY-MM.json.gz) are write-once:
+          # Weekly audit exports (archive/YYYY-Www.json.gz) are write-once:
           # transition straight to the cheapest storage class and keep 7
           # years for the audit trail.
           - Id: audit-exports-to-deep-archive

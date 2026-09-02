@@ -1,7 +1,7 @@
-"""Monthly audit archive — full-table exports to S3 Glacier Deep Archive.
+"""Weekly audit archive — full-table exports to S3 Glacier Deep Archive.
 
-On the first EOD run of each month, the previous month's archive object is
-written once to ``archive/YYYY-MM.json.gz`` (skipped if it already exists,
+On the first EOD run of each ISO week, the previous week's archive object is
+written once to ``archive/YYYY-Www.json.gz`` (skipped if it already exists,
 so the export is idempotent and never overwritten). A lifecycle rule on the
 ``archive/`` prefix transitions objects straight to Deep Archive.
 
@@ -16,7 +16,7 @@ import gzip
 import json
 import logging
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from botocore.exceptions import ClientError
 
@@ -26,16 +26,15 @@ ARCHIVE_PREFIX = "archive/"
 ARCHIVE_TABLES = ("trades", "daily_snapshots", "risk_rejections")
 
 
-def archive_key(year: int, month: int) -> str:
-    """S3 key for a month's archive object."""
-    return f"{ARCHIVE_PREFIX}{year:04d}-{month:02d}.json.gz"
+def archive_key(iso_year: int, iso_week: int) -> str:
+    """S3 key for a week's archive object."""
+    return f"{ARCHIVE_PREFIX}{iso_year:04d}-W{iso_week:02d}.json.gz"
 
 
-def previous_month(today: date) -> tuple[int, int]:
-    """(year, month) of the month before *today*, crossing year boundaries."""
-    if today.month == 1:
-        return today.year - 1, 12
-    return today.year, today.month - 1
+def previous_iso_week(today: date) -> tuple[int, int]:
+    """(iso_year, iso_week) of the week before *today*, crossing year boundaries."""
+    iso = (today - timedelta(days=7)).isocalendar()
+    return iso[0], iso[1]
 
 
 def export_tables(db_path: str) -> bytes:
@@ -67,20 +66,20 @@ def _object_exists(s3_client, bucket: str, key: str) -> bool:
         raise
 
 
-def archive_previous_month(
+def archive_previous_week(
     db_path: str,
     bucket: str,
     s3_client,
     today: date | None = None,
 ) -> str | None:
-    """Write last month's archive object if it doesn't exist yet.
+    """Write last week's archive object if it doesn't exist yet.
 
     Returns the S3 key when an object was written, None when skipped.
     Write-once: an existing key is never overwritten, so repeated EOD runs
-    within a month are no-ops after the first successful export.
+    within a week are no-ops after the first successful export.
     """
-    year, month = previous_month(today or date.today())
-    key = archive_key(year, month)
+    iso_year, iso_week = previous_iso_week(today or date.today())
+    key = archive_key(iso_year, iso_week)
 
     if _object_exists(s3_client, bucket, key):
         return None
