@@ -252,7 +252,7 @@ Six Lambda functions — five on EventBridge schedules, plus a manually invoked 
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |
 | `KillSwitch` | Manual invoke | Emergency halt — liquidates everything |
 
-> **ET times are approximate.** EventBridge cron runs in UTC with no DST adjustment: `14:30 UTC` = 09:30 EST / 10:30 EDT, and `20:55 UTC` = 15:55 EST / 16:55 EDT.
+> Schedules run on EventBridge Scheduler with `ScheduleExpressionTimezone: America/New_York`, so these times hold across daylight-saving transitions.
 
 For the full architecture deep-dive including data flow diagrams, SQLite schema, and multi-stack setup: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 

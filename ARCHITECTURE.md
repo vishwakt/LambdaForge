@@ -47,14 +47,14 @@ risk parameters and flip the kill switch without redeploying.
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
-| `DailyScanFunction` | `cron(30 14 ? * MON-FRI *)` (09:30 ET) | Full daily scan: exits, entries, risk checks |
+| `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Full daily scan: exits, entries, risk checks |
 | `MonitorStopsFunction` | `rate(1 minute)` during market hours | Trailing stop-loss enforcement, opportunistic entries |
-| `EodSnapshotFunction` | `cron(55 20 ? * MON-FRI *)` (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; on the first run of each ISO week, exports `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
-| `WeeklyDigestFunction` | `cron(55 20 ? * FRI *)` (15:55 ET Fri) | Weekly performance report |
-| `HourlyDigestFunction` | `cron(30 15-20 ? * MON-FRI *)` | Consolidated trade activity digest |
+| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; on the first run of each ISO week, exports `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
+| `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
+| `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
 
-> **ET times are approximate.** EventBridge cron is UTC with no DST adjustment: `14:30 UTC` = 09:30 EST / 10:30 EDT; `20:55 UTC` = 15:55 EST / 16:55 EDT; `15:30–20:30 UTC` = 10:30–15:30 EST / 11:30–16:30 EDT.
+> The four cron triggers are EventBridge Scheduler schedules with `ScheduleExpressionTimezone: America/New_York` — cron is evaluated in Eastern local time, so the times above hold across daylight-saving transitions. (Classic EventBridge rules evaluate cron in UTC only.) The stop-loss monitor is a plain `rate()` rule; the handler no-ops outside market hours.
 
 All trading functions check the kill switch at the top of every invocation before doing any work.
 
@@ -196,7 +196,7 @@ No shared state between stacks.
 | SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` |
 | S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` |
 | Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Manual `workflow_dispatch` + typed `DEPLOY-LIVE` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` |
-| Strategies | MACD, Bollinger, Z-Score | MACD, Bollinger, Z-Score | MACD, Bollinger, Z-Score (same `config.json` — per-stack strategy selection is not yet supported) |
+| Strategies | MACD, Bollinger, Z-Score (`config.json`) | MACD, Bollinger, Z-Score (`config.json`) | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) |
 
 ---
 

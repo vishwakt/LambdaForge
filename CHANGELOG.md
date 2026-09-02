@@ -36,11 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   touching only documentation no longer trigger full Docker build/deploy runs.
   ([#37])
 
+### Fixed
+
+- **Per-stack strategy selection via SSM actually works** — `/stock-bot-2/strategies`
+  had been set for months, but `apply_ssm_params` had no mapping for it and the
+  experimental stack silently ran the baked-in `config.json` set. The parameter
+  is now honored as a comma-separated list. ([#47])
+- **Schedules no longer drift with daylight-saving time** — classic EventBridge
+  rules evaluate cron in UTC, so the 09:30 ET scan had been firing at 10:30 EDT
+  all summer. The four cron triggers moved to EventBridge Scheduler with
+  `ScheduleExpressionTimezone: America/New_York`. ([#48])
+
 [#37]: https://github.com/vishwakt/LambdaForge/pull/37
 [#40]: https://github.com/vishwakt/LambdaForge/pull/40
 [#42]: https://github.com/vishwakt/LambdaForge/pull/42
 [#43]: https://github.com/vishwakt/LambdaForge/pull/43
 [#45]: https://github.com/vishwakt/LambdaForge/pull/45
+[#47]: https://github.com/vishwakt/LambdaForge/pull/47
+[#48]: https://github.com/vishwakt/LambdaForge/pull/48
 
 ---
 

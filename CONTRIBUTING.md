@@ -122,7 +122,12 @@ Add your strategy name to `config.json`:
 }
 ```
 
-Note: the strategy list is not an SSM parameter — `config.json` is baked into the Lambda image, so enabling a strategy requires a redeploy (push to `main`).
+Or set it at runtime via SSM (no redeploy — takes effect on the next cold start):
+
+```bash
+aws ssm put-parameter --name "/stock-bot/strategies" \
+  --value "macd,bollinger,your_strategy" --type String --overwrite
+```
 
 ### 4. Write tests
 

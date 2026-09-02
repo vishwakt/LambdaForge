@@ -150,7 +150,7 @@ def _check_and_enforce_kill_switch() -> bool:
 
 
 def daily_scan_handler(event, context):
-    """EventBridge trigger: daily market scan at 14:30 UTC (09:30 EST / 10:30 EDT)."""
+    """EventBridge trigger: daily market scan at 09:30 ET."""
     if not is_market_open():
         logger.info("Market closed — skipping daily scan")
         return {"statusCode": 200, "body": "Market closed — skipped"}
@@ -180,7 +180,7 @@ def monitor_stops_handler(event, context):
 
 
 def eod_snapshot_handler(event, context):
-    """EventBridge trigger: end-of-day snapshot at 20:55 UTC (15:55 EST / 16:55 EDT)."""
+    """EventBridge trigger: end-of-day snapshot at 15:55 ET."""
     engine = _get_engine()
     try:
         engine.update_end_of_day()
