@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LLM strategy (`llm`)** — schema-validated Claude API signals behind the same
+  `Strategy` interface as the technical strategies; fails closed to HOLD on any
+  error. Cost-bounded three ways: a capped `llm_symbols` cohort disjoint from
+  the general watchlist, an in-strategy daily call budget, and no re-invocation
+  in notification enrichment. Model selectable at runtime via SSM `ai_model`.
+  Disabled by default. ([#39])
+- **Signal log (`signals.db`)** — every strategy decision, HOLDs included, with
+  `inputs` and a `context` snapshot of non-reproducible data (e.g. the LLM model
+  id and indicators it was shown). Kept in its own file synced once per daily
+  scan so it stays out of the per-minute `trades.db` version churn. ([#39])
 - **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
   30 days after supersession (the 5 newest are always retained as rollback
   insurance); incomplete multipart uploads abort after 7 days. Bounds the
@@ -37,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#37])
 
 [#37]: https://github.com/vishwakt/LambdaForge/pull/37
+[#39]: https://github.com/vishwakt/LambdaForge/pull/39
 [#40]: https://github.com/vishwakt/LambdaForge/pull/40
 [#42]: https://github.com/vishwakt/LambdaForge/pull/42
 [#43]: https://github.com/vishwakt/LambdaForge/pull/43

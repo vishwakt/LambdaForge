@@ -28,6 +28,10 @@ logger.setLevel(logging.INFO)
 S3_BUCKET = os.getenv("TRADES_DB_BUCKET", "")
 S3_KEY = os.getenv("TRADES_DB_KEY", "trades.db")
 LOCAL_DB_PATH = "/tmp/trades.db"
+# Signal log lives in its own object, synced only by the daily scan
+# (see src/signal_log.py for why it stays out of trades.db).
+SIGNALS_DB_KEY = os.getenv("SIGNALS_DB_KEY", "signals.db")
+LOCAL_SIGNALS_DB_PATH = "/tmp/signals.db"
 
 
 def _sync_db_from_s3():
@@ -59,12 +63,34 @@ def _sync_db_to_s3():
     logger.info("Uploaded trades.db to s3://%s/%s", S3_BUCKET, S3_KEY)
 
 
+def _sync_signals_from_s3():
+    """Download signals.db to /tmp if it exists in S3; otherwise start fresh."""
+    if not S3_BUCKET:
+        return
+    s3 = boto3.client("s3")
+    try:
+        s3.download_file(S3_BUCKET, SIGNALS_DB_KEY, LOCAL_SIGNALS_DB_PATH)
+    except ClientError as e:
+        if e.response["Error"]["Code"] not in ("404", "NoSuchKey", "403"):
+            raise
+        logger.info("No existing signals.db in S3, starting fresh.")
+
+
+def _sync_signals_to_s3():
+    """Upload signals.db from /tmp back to S3 (daily scan only)."""
+    if not S3_BUCKET or not os.path.exists(LOCAL_SIGNALS_DB_PATH):
+        return
+    boto3.client("s3").upload_file(LOCAL_SIGNALS_DB_PATH, S3_BUCKET, SIGNALS_DB_KEY)
+    logger.info("Uploaded signals.db to s3://%s/%s", S3_BUCKET, SIGNALS_DB_KEY)
+
+
 def _get_engine() -> TradingEngine:
     """Create TradingEngine with Lambda-appropriate config."""
     _sync_db_from_s3()
     config = load_config()
     if S3_BUCKET:
         config.db_path = LOCAL_DB_PATH
+        config.signals_db_path = LOCAL_SIGNALS_DB_PATH
     return TradingEngine(config)
 
 
@@ -156,12 +182,14 @@ def daily_scan_handler(event, context):
         return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
         return {"statusCode": 200, "body": "Kill switch active — liquidated"}
+    _sync_signals_from_s3()
     engine = _get_engine()
     try:
         engine.run_daily_scan()
         return {"statusCode": 200, "body": "Daily scan complete"}
     finally:
         _sync_db_to_s3()
+        _sync_signals_to_s3()
 
 
 def monitor_stops_handler(event, context):

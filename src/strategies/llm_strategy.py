@@ -145,8 +145,7 @@ def _compute_indicators(bars: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
-def _build_prompt(symbol: str, bars: pd.DataFrame) -> str:
-    indicators = _compute_indicators(bars)
+def _build_prompt(symbol: str, bars: pd.DataFrame, indicators: dict) -> str:
     indicator_text = ", ".join(f"{k}={v}" for k, v in indicators.items())
     return (
         f"Symbol: {symbol}\n"
@@ -186,12 +185,15 @@ class LLMStrategy(Strategy):
                 return _hold(symbol, reason)
 
             model = _resolve_model()
+            indicators = _compute_indicators(bars)
             client = _make_client(api_key)
             response = client.messages.parse(
                 model=model,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": _build_prompt(symbol, bars)}],
+                messages=[
+                    {"role": "user", "content": _build_prompt(symbol, bars, indicators)}
+                ],
                 output_format=LLMSignalSchema,
             )
             latency_ms = int((time.monotonic() - start) * 1000)
@@ -209,7 +211,9 @@ class LLMStrategy(Strategy):
                 )
                 return _hold(symbol, "llm_error: no parsed output")
 
-            return self._to_signal(symbol, bars, model, response, parsed, latency_ms)
+            return self._to_signal(
+                symbol, bars, model, response, parsed, latency_ms, indicators
+            )
 
         except Exception as e:  # FAIL CLOSED — never raise out of a scan
             reason = f"llm_error: {type(e).__name__}: {e}"[:200]
@@ -225,6 +229,7 @@ class LLMStrategy(Strategy):
         response: object,
         parsed: LLMSignalSchema,
         latency_ms: int,
+        indicators: dict,
     ) -> Signal:
         last_close = float(bars["close"].iloc[-1])
         confidence = min(1.0, max(0.0, parsed.confidence))
@@ -273,5 +278,11 @@ class LLMStrategy(Strategy):
             entry_price=last_close if parsed.action != "HOLD" else None,
             stop_loss=stop_loss,
             take_profit=parsed.take_profit,
-            metadata={"model": model},
+            # `inputs`/`context` feed the signal log: bars are reproducible
+            # later, the model id and the indicator snapshot it saw are not.
+            metadata={
+                "model": model,
+                "inputs": ["bars", "indicators"],
+                "context": {"model": model, "indicators": indicators},
+            },
         )

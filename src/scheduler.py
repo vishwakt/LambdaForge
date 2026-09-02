@@ -21,6 +21,7 @@ from src.config import AppConfig, load_config
 from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
 from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
+from src.signal_log import init_signal_db, log_signal, signal_to_row
 from src.strategies import STRATEGIES
 from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
@@ -55,6 +56,7 @@ class TradingEngine:
         self.config = config or load_config()
         self.paper = self.config.trading_mode == "paper"
         self.trade_log = TradeLog(self.config.db_path)
+        init_signal_db(self.config.signals_db_path)
         self.risk_manager = RiskManager(self.config.risk, self.trade_log)
         self.notifier = get_notifier(
             self.config.notifier,
@@ -171,6 +173,7 @@ class TradingEngine:
                 if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
                     strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
+                self._record_signal(signal, strat_name, bars)
 
                 if signal.action == Action.SELL:
                     logger.info(
@@ -181,6 +184,22 @@ class TradingEngine:
                     )
                     self._execute_exit(trading_client, pos, signal, strat_name)
                     break
+
+    def _record_signal(self, signal: Signal, strat_name: str, bars) -> None:
+        """Append every decision (HOLDs included) to the signal log.
+
+        Fail-open: a logging failure must never interrupt the scan.
+        """
+        try:
+            price = float(bars["close"].iloc[-1])
+            log_signal(
+                self.config.signals_db_path,
+                signal_to_row(signal, strat_name, price),
+            )
+        except Exception as e:
+            logger.warning(
+                "Signal log write failed for %s/%s: %s", signal.symbol, strat_name, e
+            )
 
     def _scan_for_entries(self, trading_client, account_info, open_positions):
         """Scan watchlist for new BUY signals."""
@@ -216,6 +235,7 @@ class TradingEngine:
                 if hasattr(strategy, "set_spy_bars") and spy_bars is not None:
                     strategy.set_spy_bars(spy_bars)
                 signal = strategy.generate_signal(symbol, bars)
+                self._record_signal(signal, strat_name, bars)
 
                 if signal.action != Action.BUY:
                     continue

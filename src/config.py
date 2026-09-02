@@ -57,6 +57,8 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     db_path: str = str(PROJECT_ROOT / "trades.db")
+    # Separate file on purpose — see src/signal_log.py for why.
+    signals_db_path: str = str(PROJECT_ROOT / "signals.db")
     trading_mode: str = "paper"  # "paper" or "live"
     notifier: str = "console"  # "console", "sns", "console+sns"
     notify_frequency: str = "hourly"  # "realtime", "hourly", "daily"
