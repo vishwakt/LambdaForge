@@ -112,7 +112,7 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 - **Deployment:** AWS SAM (CloudFormation under the hood). `sam deploy --guided`
   gets you running in ~10 minutes on a fresh AWS account.
 - **Observability:** All decisions logged to CloudWatch with timestamps and
-  reasoning. Log retention is set to 30 days on all log groups (applied via
+  reasoning. Log retention is set to 180 days on all log groups (applied via
   the AWS CLI; not managed by the template).
 - **Persistence:** SQLite trade log synced to/from S3 on every invocation. Versioned,
   encrypted at rest (SSE-S3).
