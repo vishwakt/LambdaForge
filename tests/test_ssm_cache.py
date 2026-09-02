@@ -148,3 +148,37 @@ class TestSSMCache:
             second = ssm_config.load_ssm_params()
 
         assert first is second  # Same object, not a copy
+
+
+class TestApplySsmParams:
+    """SSM values override config.json; the strategies list is comma-separated."""
+
+    def test_strategies_param_overrides_config(self):
+        from src.config import AppConfig
+
+        config = AppConfig()
+        assert config.scheduler.strategies == ["macd", "bollinger", "zscore"]
+
+        ssm_config.apply_ssm_params(
+            config, {"strategies": "rsi_macd, ema_crossover,relative_strength"}
+        )
+
+        assert config.scheduler.strategies == [
+            "rsi_macd",
+            "ema_crossover",
+            "relative_strength",
+        ]
+
+    def test_strategies_param_ignores_blank_entries(self):
+        from src.config import AppConfig
+
+        config = AppConfig()
+        ssm_config.apply_ssm_params(config, {"strategies": "macd,,  ,zscore,"})
+        assert config.scheduler.strategies == ["macd", "zscore"]
+
+    def test_unknown_param_is_ignored(self):
+        from src.config import AppConfig
+
+        config = AppConfig()
+        ssm_config.apply_ssm_params(config, {"no_such_param": "x"})
+        assert config.scheduler.strategies == ["macd", "bollinger", "zscore"]
