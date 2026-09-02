@@ -9,9 +9,9 @@ from botocore.exceptions import ClientError
 
 from src.archive import (
     archive_key,
-    archive_previous_month,
+    archive_previous_week,
     export_tables,
-    previous_month,
+    previous_iso_week,
 )
 from src.trade_log import TradeLog
 
@@ -65,13 +65,15 @@ def db_path(tmp_path):
 
 class TestArchiveNaming:
     def test_archive_key_format(self):
-        assert archive_key(2026, 7) == "archive/2026-07.json.gz"
+        assert archive_key(2026, 7) == "archive/2026-W07.json.gz"
 
-    def test_previous_month_mid_year(self):
-        assert previous_month(date(2026, 8, 1)) == (2026, 7)
+    def test_previous_iso_week_mid_year(self):
+        # 2026-08-03 is the Monday of ISO week 32 → previous week is 31
+        assert previous_iso_week(date(2026, 8, 3)) == (2026, 31)
 
-    def test_previous_month_crosses_year_boundary(self):
-        assert previous_month(date(2026, 1, 15)) == (2025, 12)
+    def test_previous_iso_week_crosses_year_boundary(self):
+        # 2026-01-01 is in ISO week 1 of 2026; a week earlier is 2025-W52
+        assert previous_iso_week(date(2026, 1, 1)) == (2025, 52)
 
 
 class TestExportTables:
@@ -87,13 +89,13 @@ class TestExportTables:
         assert "exported_at" in payload
 
 
-class TestArchivePreviousMonth:
+class TestArchivePreviousWeek:
     def test_writes_archive_when_missing(self, db_path):
         s3 = _FakeS3()
 
-        key = archive_previous_month(db_path, "bucket", s3, today=date(2026, 8, 3))
+        key = archive_previous_week(db_path, "bucket", s3, today=date(2026, 8, 3))
 
-        assert key == "archive/2026-07.json.gz"
+        assert key == "archive/2026-W31.json.gz"
         assert len(s3.put_calls) == 1
         put = s3.put_calls[0]
         assert put["Key"] == key
@@ -102,9 +104,9 @@ class TestArchivePreviousMonth:
         assert body["tables"]["trades"][0]["symbol"] == "AAPL"
 
     def test_skips_when_archive_already_exists(self, db_path):
-        s3 = _FakeS3(existing_keys=["archive/2026-07.json.gz"])
+        s3 = _FakeS3(existing_keys=["archive/2026-W31.json.gz"])
 
-        key = archive_previous_month(db_path, "bucket", s3, today=date(2026, 8, 3))
+        key = archive_previous_week(db_path, "bucket", s3, today=date(2026, 8, 3))
 
         assert key is None
         assert s3.put_calls == []
@@ -115,6 +117,6 @@ class TestArchivePreviousMonth:
                 raise ClientError({"Error": {"Code": "500"}}, "HeadObject")
 
         with pytest.raises(ClientError):
-            archive_previous_month(
+            archive_previous_week(
                 db_path, "bucket", _BrokenS3(), today=date(2026, 8, 3)
             )

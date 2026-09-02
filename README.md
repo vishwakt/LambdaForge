@@ -72,7 +72,7 @@ One of LambdaForge's biggest advantages: **it costs almost nothing to run**.
 |-------------|----------------------|-----------|----------------|
 | **Lambda** | 7 functions, ~1M invocations/month | 1M req + 400K GB-s free | **$0** |
 | **EventBridge** | 6 scheduled rules | 14M events free | **$0** |
-| **S3** | < 1 MB for `trades.db` (old versions auto-expire via lifecycle policy; monthly audit exports archived to Glacier Deep Archive for 7 years) | 5 GB free | **$0** |
+| **S3** | < 1 MB for `trades.db` (old versions auto-expire via lifecycle policy; weekly audit exports archived to Glacier Deep Archive for 7 years) | 5 GB free | **$0** |
 | **SSM Parameter Store** | 12 parameters, ~3K reads/month | 10K API calls free | **$0** |
 | **SNS** | < 1K email notifications/month | 1K emails free | **$0** |
 | **KMS** | SecureString decryption on cold starts | 20K requests free | **~$0.15** |
