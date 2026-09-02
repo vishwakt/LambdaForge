@@ -9,7 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(nothing yet — changes after v0.1.0 land here)*
+- **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
+  30 days after supersession (the 5 newest are always retained as rollback
+  insurance); incomplete multipart uploads abort after 7 days. Bounds the
+  previously unbounded version growth from every handler run re-uploading the
+  DB. ([#40])
+- **Monthly audit archive to S3 Glacier Deep Archive** — the first end-of-day
+  run of each month exports the full `trades`, `daily_snapshots`, and
+  `risk_rejections` tables to `archive/YYYY-MM.json.gz` (write-once,
+  idempotent). A prefix-scoped lifecycle rule transitions archives straight to
+  Deep Archive and expires them after 7 years. ([#42])
+- **Deployer IAM read access for lifecycle verification** — the deployer policy
+  template now includes `s3:GetLifecycleConfiguration` and
+  `s3:ListBucketVersions` so the CLI user can verify lifecycle state and watch
+  version cleanup without admin credentials. ([#43])
+
+### Changed
+
+- **CI: paper and Bot 2 deploy workflows skip on docs-only changes** — pushes
+  touching only documentation no longer trigger full Docker build/deploy runs.
+  ([#37])
+
+[#37]: https://github.com/vishwakt/LambdaForge/pull/37
+[#40]: https://github.com/vishwakt/LambdaForge/pull/40
+[#42]: https://github.com/vishwakt/LambdaForge/pull/42
+[#43]: https://github.com/vishwakt/LambdaForge/pull/43
 
 ---
 
