@@ -34,7 +34,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
                     ┌──────────────▼──────────────────────┐
                     │        AWS Lambda (ARM64)           │
                     │  • Scans 200+ symbols               │
-                    │  • Runs 7 trading strategies        │
+                    │  • Runs 3 of 7 built-in strategies  │
                     │  • Enforces 6 risk rules            │
                     │  • Places orders via Alpaca         │
                     │  • Sends email digest               │
@@ -70,9 +70,9 @@ One of LambdaForge's biggest advantages: **it costs almost nothing to run**.
 
 | AWS Service | What LambdaForge uses | Free Tier | Estimated cost |
 |-------------|----------------------|-----------|----------------|
-| **Lambda** | 7 functions, ~1M invocations/month | 1M req + 400K GB-s free | **$0** |
-| **EventBridge** | 6 scheduled rules | 14M events free | **$0** |
-| **S3** | < 1 MB for `trades.db` (old versions auto-expire via lifecycle policy; weekly audit exports archived to Glacier Deep Archive for 7 years) | 5 GB free | **$0** |
+| **Lambda** | 6 functions, ~1M invocations/month | 1M req + 400K GB-s free | **$0** |
+| **EventBridge** | 5 scheduled rules | 14M events free | **$0** |
+| **S3** | 2–12 MB `trades.db`, re-uploaded up to once a minute (noncurrent versions expire after 3 days, 5 newest kept; weekly audit exports go straight to Glacier Deep Archive for 7 years) | 5 GB free | **$0** |
 | **SSM Parameter Store** | 12 parameters, ~3K reads/month | 10K API calls free | **$0** |
 | **SNS** | < 1K email notifications/month | 1K emails free | **$0** |
 | **KMS** | SecureString decryption on cold starts | 20K requests free | **~$0.15** |
@@ -80,7 +80,7 @@ One of LambdaForge's biggest advantages: **it costs almost nothing to run**.
 | **ECR** | Container image storage | 500 MB free | **$0** |
 | | | **Monthly total →** | **~$0.15** |
 
-> Running **3 stacks** (paper + live + experimental) in parallel costs ~$0.45/month. Still cheaper than a cup of coffee.
+> Running **3 stacks** (paper + live + experimental) in parallel costs ~$0.50/month. Still cheaper than a cup of coffee.
 
 Compare this to a VPS or dedicated server which would run $5–$50/month for equivalent uptime.
 
@@ -90,9 +90,9 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 
 | Feature | Details |
 |---------|---------|
-| 🧠 **7 trading strategies** | MACD, Bollinger Squeeze, Z-Score Mean Reversion, RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY |
+| 🧠 **7 trading strategies** (3 enabled by default) | MACD, Bollinger Squeeze, Z-Score Mean Reversion (enabled); RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY (available via `config.json`) |
 | 🛡️ **6-rule risk manager** | Confidence gate, daily loss limit, max positions, concentration cap, stop-loss enforcement, dynamic position sizing |
-| 📈 **Trailing stop-loss** | Price-based trailing stops updated every minute during market hours |
+| 📈 **Trailing stop-loss** | Hybrid trailing stop — the tighter of 5% below the high-water mark or 2×ATR — re-evaluated every minute during market hours, never moves down |
 | 🔴 **Kill switch** | One command liquidates everything and halts trading instantly |
 | 📊 **Multi-stack** | Paper and live run as independent stacks — no shared state |
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
@@ -156,7 +156,7 @@ sam deploy             # Subsequent deploys
 
 ### 6. Subscribe to alerts
 
-Go to **SNS → Topics → stock-trading-bot-alerts → Create subscription → Email**.
+If you passed `NotificationEmail` at deploy time, SAM already created the subscription — confirm it from the email SNS sends you. Otherwise: **SNS → Topics → the topic whose display name is "Stock Trading Bot Alerts (paper)" → Create subscription → Email**.
 
 ### 7. Verify everything is working
 
@@ -172,17 +172,17 @@ All strategies implement a common interface — they receive historical OHLCV ba
 
 | Strategy | Entry Signal | Stop Loss | Take Profit | Best for |
 |----------|-------------|-----------|-------------|----------|
-| **MACD Crossover** | 12/26 EMA bullish cross + signal line | 4% below entry | 8% above | Trending markets |
-| **Bollinger Squeeze** | Band compression → breakout + volume | 3% below entry | 6% above | Volatility expansion |
-| **Z-Score Mean Reversion** | 50-day Z-score < −2 (oversold) | 5% below entry | Z > +2 | Range-bound markets |
+| **MACD Crossover** | 12/26 EMA bullish cross + signal line | 3% below entry | 6% above | Trending markets |
+| **Bollinger Squeeze** | Band compression → breakout + volume | Middle band (20-SMA) | 1:1 measured move above entry | Volatility expansion |
+| **Z-Score Mean Reversion** | 50-day Z-score < −2 (oversold) | 1 std-dev below entry | Rolling mean (Z ≈ 0); SELL signal at Z > +2 | Range-bound markets |
 | **RSI Confluence** | RSI oversold + uptrend + volume | 4% below entry | 8% above | Momentum dips |
-| **EMA Crossover + ADX** | 9/21 EMA cross + ADX > 25 | 3% below entry | 7% above | Strong trends |
+| **EMA Crossover + ADX** | 9/21 EMA cross + ADX > 25 | 3% below entry | 6% above | Strong trends |
 | **RSI + MACD Confluence** | RSI oversold + MACD bullish cross | 4% below entry | 8% above | Reversal signals |
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
 
 > **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises.
 
-Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes about 30 lines of code.
+Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes ~50 lines of code.
 
 ---
 
@@ -241,7 +241,7 @@ No CLI? Set `/stock-bot/kill-switch` → `kill` directly in the AWS Console. The
 
 ## 🏗️ Architecture
 
-Seven Lambda functions, one EventBridge schedule each:
+Six Lambda functions — five on EventBridge schedules, plus a manually invoked kill switch:
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
@@ -251,6 +251,8 @@ Seven Lambda functions, one EventBridge schedule each:
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |
 | `KillSwitch` | Manual invoke | Emergency halt — liquidates everything |
+
+> Schedules run on EventBridge Scheduler with `ScheduleExpressionTimezone: America/New_York`, so these times hold across daylight-saving transitions.
 
 For the full architecture deep-dive including data flow diagrams, SQLite schema, and multi-stack setup: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -262,7 +264,7 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-55 tests covering market hours, buy deduplication, strategy signal generation, SSM caching, environment labelling, and config defaults.
+80 tests covering market hours, buy deduplication, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 

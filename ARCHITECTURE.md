@@ -19,7 +19,7 @@ risk parameters and flip the kill switch without redeploying.
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          AWS EventBridge                            │
 │   09:30 ET ──► DailyScan   │  Every 1 min ──► MonitorStops         │
-│   15:55 ET ──► EodSnapshot │  15:30 ET daily ──► HourlyDigest      │
+│   15:55 ET ──► EodSnapshot │  Hourly :30 mkt hrs ──► HourlyDigest  │
 │   15:55 ET Fri ──► WeeklyDigest │  Manual ──► KillSwitch           │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
@@ -47,12 +47,14 @@ risk parameters and flip the kill switch without redeploying.
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
-| `DailyScanFunction` | `cron(30 14 ? * MON-FRI *)` (09:30 ET) | Full daily scan: exits, entries, risk checks |
+| `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Full daily scan: exits, entries, risk checks |
 | `MonitorStopsFunction` | `rate(1 minute)` during market hours | Trailing stop-loss enforcement, opportunistic entries |
-| `EodSnapshotFunction` | `cron(55 20 ? * MON-FRI *)` (15:55 ET) | End-of-day P&L snapshot + benchmark comparison |
-| `WeeklyDigestFunction` | `cron(55 20 ? * FRI *)` (15:55 ET Fri) | Weekly performance report |
-| `HourlyDigestFunction` | `cron(30 15-20 ? * MON-FRI *)` | Consolidated trade activity digest |
+| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; on the first run of each ISO week, exports `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
+| `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
+| `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
+
+> The four cron triggers are EventBridge Scheduler schedules with `ScheduleExpressionTimezone: America/New_York` — cron is evaluated in Eastern local time, so the times above hold across daylight-saving transitions. (Classic EventBridge rules evaluate cron in UTC only.) The stop-loss monitor is a plain `rate()` rule; the handler no-ops outside market hours.
 
 All trading functions check the kill switch at the top of every invocation before doing any work.
 
@@ -64,10 +66,10 @@ All trading functions check the kill switch at the top of every invocation befor
 
 ```
 DailyScanFunction
-  ├── Download trades.db from S3
-  ├── load_config() — SSM + env vars + config.json
   ├── is_market_open() guard
   ├── _check_kill_switch() — reads SSM directly, every call
+  ├── Download trades.db from S3
+  ├── load_config() — SSM + env vars + config.json
   └── TradingEngine.run_daily_scan()
         ├── Save daily equity snapshot
         ├── Check exits: strategy signals on all open positions
@@ -87,6 +89,7 @@ MonitorStopsFunction
   ├── _check_kill_switch()
   └── TradingEngine.monitor_stops()
         ├── _check_trailing_stops() — real-time quotes via Alpaca
+        │     ├── Ratchet stop up to max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR); never lowered
         │     └── Sell if price <= trailing_stop
         ├── _check_exit_signals() — strategy SELL on open positions
         └── _scan_for_entries() — opportunistic buys (dedup check)
@@ -130,7 +133,7 @@ A `Signal` carries:
 | **RSI + MACD Confluence** | `rsi_macd_confluence.py` | RSI oversold + MACD bullish cross combo signal |
 | **Relative Strength vs SPY** | `relative_strength.py` | Buys stocks outperforming SPY on a rolling basis |
 
-All strategies set `stop_loss` (3–5% below entry) and `take_profit` (6–10% above entry) on BUY signals. Trailing stops are managed centrally by the scheduler, not individual strategies.
+All strategies set `stop_loss` and `take_profit` on BUY signals — fixed 3–5% / 6–10% for the momentum strategies, band- and σ-based levels for Bollinger and Z-Score. Trailing stops are managed centrally by the scheduler (hybrid: the tighter of 5% below the high-water mark or 2×ATR, never lowered), not individual strategies.
 
 ---
 
@@ -156,7 +159,7 @@ Priority (highest → lowest):
 ```
 SSM Parameter Store  (/stock-bot/* prefix)
     ↓
-Environment Variables  (DB_PATH, NOTIFIER_TYPE, SNS_TOPIC_ARN)
+Environment Variables  (TRADING_MODE, DB_PATH, NOTIFIER_TYPE, NOTIFY_FREQUENCY)
     ↓
 config.json  (project root)
     ↓
@@ -192,8 +195,8 @@ No shared state between stacks.
 | Stack | `stock-trading-bot` | `stock-trading-bot-live` | `stock-trading-bot-2` |
 | SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` |
 | S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` |
-| Deploy trigger | Push to `main` | Manual `workflow_dispatch` | Push to `main` |
-| Strategies | MACD, Bollinger, Z-Score | MACD, Bollinger, Z-Score | RSI+MACD, EMA+ADX, Relative Strength |
+| Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Manual `workflow_dispatch` + typed `DEPLOY-LIVE` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` |
+| Strategies | MACD, Bollinger, Z-Score (`config.json`) | MACD, Bollinger, Z-Score (`config.json`) | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) |
 
 ---
 
@@ -210,12 +213,12 @@ Email types and when they fire:
 
 | Email | Trigger | Format |
 |-------|---------|--------|
-| Buy summary | `flush_trades()` after scan | SES HTML — strategy scores table |
-| Sell summary | `flush_trades()` after scan | SES HTML — per-trade P&L |
-| Rejection summary | `flush_trades()` after scan | SES HTML — risk rejection reasons |
+| Buy summary | `flush_trades()` after scan (only when `notify_frequency=realtime`; the default `hourly` defers to the hourly digest) | SES HTML — strategy scores table |
+| Sell summary | `flush_trades()` after scan (only when `notify_frequency=realtime`; the default `hourly` defers to the hourly digest) | SES HTML — per-trade P&L |
+| Rejection summary | `flush_trades()` after scan (only when `notify_frequency=realtime`; the default `hourly` defers to the hourly digest) | SES HTML — risk rejection reasons |
 | Stop-loss alert | Trailing stop triggered | SNS plain text — immediate, never batched |
 | Hourly digest | `HourlyDigestFunction` | SES HTML — all activity in last hour |
-| Daily summary | EOD snapshot | SES HTML — equity, P&L, benchmark |
+| Daily summary | End of DailyScan and EOD snapshot (twice daily) | SES HTML — equity, P&L, benchmark |
 | Weekly digest | Friday EOD | SES HTML — equity curve, strategy breakdown |
 
 Email subjects are prefixed with `[PAPER]`, `[LIVE]`, or `[BOT-2]` so you can filter by stack in your inbox.
@@ -268,6 +271,8 @@ risk_rejections (
 
 `trades.db` lives in `/tmp` on Lambda, synced from S3 at the start of each invocation and uploaded back at the end.
 
+The bucket is versioned. A lifecycle policy expires noncurrent `trades.db` versions 3 days after supersession (always keeping the 5 newest as rollback insurance) and aborts incomplete multipart uploads after 7 days. Objects under `archive/` transition to S3 Glacier Deep Archive immediately and expire after 7 years.
+
 ---
 
 ## Trade Lifecycle
@@ -312,7 +317,9 @@ aws ssm put-parameter --name "/stock-bot/notification_email" --value "you@exampl
 sam build && sam deploy --guided
 
 # 3. Subscribe to SNS alerts
-# Go to SNS → Topics → stock-trading-bot-alerts → Create subscription → Email
+# If you passed NotificationEmail at deploy time, SAM already created the subscription —
+# confirm it from the email SNS sends you. Otherwise: SNS → Topics → the topic whose
+# display name is "Stock Trading Bot Alerts (paper)" → Create subscription → Email
 ```
 
 CI/CD via GitHub Actions: paper stack auto-deploys on push to `main`; live stack requires manual `workflow_dispatch` with a typed confirmation.
