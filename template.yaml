@@ -65,14 +65,15 @@ Resources:
         Status: Enabled
       LifecycleConfiguration:
         Rules:
-          # Every handler run uploads trades.db back, creating a noncurrent
-          # version. The DB is cumulative (each version contains the full
-          # history), so old versions are redundant point-in-time copies —
-          # expire them, always keeping the 5 newest as rollback insurance.
+          # Every handler run uploads trades.db back (up to once a minute),
+          # creating a noncurrent version. The DB is cumulative (each version
+          # contains the full history), so old versions are redundant
+          # point-in-time copies — expire them after a 3-day rollback window
+          # (covers a weekend), always keeping the 5 newest.
           - Id: expire-old-db-versions
             Status: Enabled
             NoncurrentVersionExpiration:
-              NoncurrentDays: 30
+              NoncurrentDays: 3
               NewerNoncurrentVersions: 5
           - Id: abort-incomplete-uploads
             Status: Enabled
