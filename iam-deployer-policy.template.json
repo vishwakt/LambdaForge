@@ -172,9 +172,26 @@
       "Resource": "arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/stock-trading-bot-*",
       "Condition": {
         "StringEquals": {
-          "iam:PassedToService": "lambda.amazonaws.com"
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "scheduler.amazonaws.com"
+          ]
         }
       }
+    },
+    {
+      "Sid": "EventBridgeScheduler",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:CreateSchedule",
+        "scheduler:UpdateSchedule",
+        "scheduler:DeleteSchedule",
+        "scheduler:GetSchedule",
+        "scheduler:TagResource",
+        "scheduler:UntagResource",
+        "scheduler:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:scheduler:us-east-1:YOUR_AWS_ACCOUNT_ID:schedule/default/*"
     },
     {
       "Sid": "EventBridgeRules",
