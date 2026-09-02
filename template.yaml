@@ -187,7 +187,11 @@ Resources:
           - handler.daily_scan_handler
       Role: !GetAtt TradingBotRole.Arn
       Events:
-        DailySchedule:
+        # Event keys end in "Local" because SAM derives the CloudFormation
+        # logical ID from them, and CloudFormation cannot change an existing
+        # resource's type in place (Events::Rule -> Scheduler::Schedule).
+        # New IDs = create the schedules, delete the old rules.
+        DailyScheduleLocal:
           # EventBridge Scheduler (not a classic rule): cron runs in the
           # given timezone, so 09:30 stays 09:30 across DST transitions.
           Type: ScheduleV2
@@ -236,7 +240,7 @@ Resources:
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
       Events:
-        EodSchedule:
+        EodScheduleLocal:
           Type: ScheduleV2
           Properties:
             ScheduleExpression: cron(55 15 ? * MON-FRI *)
@@ -258,7 +262,7 @@ Resources:
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
       Events:
-        WeeklySchedule:
+        WeeklyScheduleLocal:
           Type: ScheduleV2
           Properties:
             ScheduleExpression: cron(55 15 ? * FRI *)
@@ -280,7 +284,7 @@ Resources:
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
       Events:
-        HourlySchedule:
+        HourlyScheduleLocal:
           Type: ScheduleV2
           Properties:
             ScheduleExpression: cron(30 10-15 ? * MON-FRI *)
