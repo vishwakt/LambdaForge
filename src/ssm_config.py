@@ -17,6 +17,12 @@ logger = logging.getLogger("stock-trader")
 _ssm_cache: dict[str, str] = {}
 _cache_loaded: bool = False
 
+
+def _csv_list(value: str) -> list[str]:
+    """Parse a comma-separated SSM String into a list, e.g. "macd, zscore"."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # Mapping: SSM param name (after prefix strip) → (config section, field, type)
 _PARAM_MAP = {
     "trading_mode": ("app", "trading_mode", str),
@@ -30,6 +36,9 @@ _PARAM_MAP = {
     "min_confidence": ("risk", "min_confidence", float),
     "monitor_interval": ("scheduler", "monitor_interval_min", int),
     "notify_frequency": ("app", "notify_frequency", str),
+    # Per-stack strategy selection, e.g. "rsi_macd,ema_crossover" — lets the
+    # experimental stack run a different set than the baked-in config.json.
+    "strategies": ("scheduler", "strategies", _csv_list),
 }
 
 

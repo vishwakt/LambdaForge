@@ -16,6 +16,8 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
+from src.archive import archive_previous_week
+from src.client import get_market_clock, get_trading_client
 from src.config import load_config
 from src.market_hours import is_market_open
 from src.scheduler import TradingEngine
@@ -65,6 +67,22 @@ def _get_engine() -> TradingEngine:
     if S3_BUCKET:
         config.db_path = LOCAL_DB_PATH
     return TradingEngine(config)
+
+
+def _market_open() -> bool:
+    """Holiday-aware market check: Alpaca's clock first, heuristic fallback.
+
+    load_config() also injects the SSM-stored Alpaca credentials into the
+    environment, which the trading client needs.
+    """
+    try:
+        config = load_config()
+        client = get_trading_client(paper=config.trading_mode == "paper")
+        clock = get_market_clock(client)
+    except Exception as e:
+        logger.warning("Could not reach market clock (%s); using heuristic", e)
+        clock = None
+    return is_market_open(clock=clock)
 
 
 def _check_kill_switch() -> bool:
@@ -150,7 +168,7 @@ def _check_and_enforce_kill_switch() -> bool:
 
 def daily_scan_handler(event, context):
     """EventBridge trigger: daily market scan at 09:30 ET."""
-    if not is_market_open():
+    if not _market_open():
         logger.info("Market closed — skipping daily scan")
         return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
@@ -165,7 +183,7 @@ def daily_scan_handler(event, context):
 
 def monitor_stops_handler(event, context):
     """EventBridge trigger: stop-loss check every N min during market hours."""
-    if not is_market_open():
+    if not _market_open():
         logger.info("Market closed — skipping monitor")
         return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
@@ -183,9 +201,23 @@ def eod_snapshot_handler(event, context):
     engine = _get_engine()
     try:
         engine.update_end_of_day()
+        _archive_audit_tables()
         return {"statusCode": 200, "body": "EOD snapshot complete"}
     finally:
         _sync_db_to_s3()
+
+
+def _archive_audit_tables():
+    """Write last week's audit archive (idempotent, fail-open).
+
+    An archive failure must never break the EOD snapshot — log and move on.
+    """
+    if not S3_BUCKET:
+        return
+    try:
+        archive_previous_week(LOCAL_DB_PATH, S3_BUCKET, boto3.client("s3"))
+    except Exception as e:
+        logger.error("Audit archive failed (snapshot unaffected): %s", e)
 
 
 def weekly_digest_handler(event, context):
