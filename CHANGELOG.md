@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Holiday-aware market guard, idempotent exits, stale-quote guard** — on
+  Labor Day 2026 the weekday/time heuristic let Bot 2 run, act on Friday's
+  quotes, queue seven holiday sell orders (Alpaca accepts DAY orders while
+  closed), and then re-alert and re-submit every cycle. Handlers now ask
+  Alpaca's market clock (holidays, half-days) with the heuristic as fallback;
+  the stop-loss check skips quotes older than 15 minutes; and an exit is
+  skipped when a sell order for that symbol is already open. ([#52])
 - **Per-stack strategy selection via SSM actually works** — `/stock-bot-2/strategies`
   had been set for months, but `apply_ssm_params` had no mapping for it and the
   experimental stack silently ran the baked-in `config.json` set. The parameter
@@ -54,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#45]: https://github.com/vishwakt/LambdaForge/pull/45
 [#47]: https://github.com/vishwakt/LambdaForge/pull/47
 [#48]: https://github.com/vishwakt/LambdaForge/pull/48
+[#52]: https://github.com/vishwakt/LambdaForge/pull/52
 
 ---
 
@@ -115,8 +123,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 - **Kill switch:** `aws ssm put-parameter --name /stock-bot/kill-switch --value kill`
   halts all new orders within ~60 seconds. Checked on every Lambda invocation
   (bypasses the SSM cache by design).
-- **Market hours guard:** Zero API calls when the market is closed, including
-  partial-day holidays.
+- **Market hours guard:** Skips runs outside 09:30–16:00 ET on weekdays. (Holiday
+  awareness arrived later — see the Fixed entry for [#52] under Unreleased.)
 - **Buy deduplication:** Prevents double-buys from overlapping Lambda invocations.
 - **Rate-limit backoff:** Automatic retry with exponential backoff on Alpaca 429s.
 
