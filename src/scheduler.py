@@ -15,10 +15,12 @@ from src.client import (
     get_positions,
     get_rate_limit_hits,
     get_trading_client,
+    has_open_sell_order,
     place_market_order,
 )
 from src.config import AppConfig, load_config
 from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
+from src.market_hours import is_quote_fresh
 from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
 from src.strategies import STRATEGIES
@@ -306,6 +308,11 @@ class TradingEngine:
         symbol, logging separate sell records per entry for accurate P&L.
         """
         qty = int(position["qty"])
+        if has_open_sell_order(trading_client, signal.symbol):
+            logger.info(
+                "DEDUP: sell order already open for %s — skipping exit", signal.symbol
+            )
+            return
         try:
             order = place_market_order(trading_client, signal.symbol, qty, "sell")
 
@@ -429,6 +436,14 @@ class TradingEngine:
 
             try:
                 quote = get_latest_quote(data_client, trade["symbol"])
+                if not is_quote_fresh(quote.get("timestamp")):
+                    # Holiday / halted / feed issue: this is not a live price.
+                    logger.warning(
+                        "Stale quote for %s (as of %s) — skipping stop check",
+                        trade["symbol"],
+                        quote.get("timestamp"),
+                    )
+                    continue
                 current_price = quote["bid_price"]
 
                 # --- Trailing stop update ---
@@ -462,7 +477,13 @@ class TradingEngine:
                         new_trailing,
                     )
                     pos = pos_map.get(trade["symbol"])
-                    if pos:
+                    if pos and has_open_sell_order(trading_client, trade["symbol"]):
+                        # Already exiting — don't re-alert or re-submit every cycle
+                        logger.info(
+                            "DEDUP: sell order already open for %s — skipping",
+                            trade["symbol"],
+                        )
+                    elif pos:
                         exit_signal = Signal(
                             symbol=trade["symbol"],
                             action=Action.SELL,

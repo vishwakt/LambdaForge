@@ -11,8 +11,12 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
+from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    MarketOrderRequest,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -137,7 +141,44 @@ def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dic
         "ask_size": quote.ask_size,
         "bid_price": float(quote.bid_price),
         "bid_size": quote.bid_size,
+        # Needed to detect stale prices (e.g. Friday's last print on a holiday)
+        "timestamp": quote.timestamp,
     }
+
+
+def get_market_clock(trading_client: TradingClient):
+    """Return Alpaca's market clock, or None if the call fails.
+
+    The clock's ``is_open`` is the exchange calendar's answer — holidays and
+    half-days included. Callers fall back to the weekday/time heuristic in
+    ``market_hours.is_market_open`` when this returns None.
+    """
+    try:
+        return trading_client.get_clock()
+    except Exception as e:
+        logger.warning("Market clock unavailable, falling back to heuristic: %s", e)
+        return None
+
+
+def has_open_sell_order(trading_client: TradingClient, symbol: str) -> bool:
+    """True if a sell order for *symbol* is already open at the broker.
+
+    Exits must be idempotent: a stop that stays triggered across monitor
+    cycles (slow fill, halt, or a queued order while the market is closed)
+    must not submit a fresh sell every cycle. Fails open — if the check
+    itself errors, the exit still proceeds so a stop-loss is never silently
+    suppressed.
+    """
+    try:
+        orders = trading_client.get_orders(
+            GetOrdersRequest(
+                status=QueryOrderStatus.OPEN, symbols=[symbol], side=OrderSide.SELL
+            )
+        )
+        return len(orders) > 0
+    except Exception as e:
+        logger.warning("Open-order check failed for %s (proceeding): %s", symbol, e)
+        return False
 
 
 def place_market_order(

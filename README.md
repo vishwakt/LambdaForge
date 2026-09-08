@@ -98,7 +98,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
 | ⚙️ **Zero-redeploy config** | Tune risk params and flip the kill switch via SSM — no deploy needed |
 | 🔒 **Buy deduplication** | Prevents duplicate orders while still allowing pyramiding into winning positions |
-| 🕐 **Market hours guard** | Automatically skips runs outside 09:30–16:00 ET Mon–Fri |
+| 🕐 **Market hours guard** | Checks Alpaca's market clock on every run — skips holidays, half-days, and anything outside 09:30–16:00 ET (weekday/time heuristic as fallback) |
 | 🏷️ **Environment tagging** | Email subjects prefixed `[PAPER]`, `[LIVE]`, `[BOT-2]` for easy inbox filtering |
 
 ---
