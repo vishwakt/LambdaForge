@@ -2,5 +2,5 @@ alpaca-py>=0.13.0
 python-dotenv>=1.0.0
 pandas>=2.0.0
 schedule>=1.2.2
-boto3>=1.26.0
+boto3>=1.43.92
 tzdata>=2023.3
