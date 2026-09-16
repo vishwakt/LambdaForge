@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Kill switch and status from Telegram** — `python -m src.telegram_bot`
+  long-polls a Telegram bot and answers `/<bot> status|positions|kill|alive`
+  for `stock-bot`, `stock-bot-2`, and `stock-bot-live`. `kill` requires a
+  `confirm` reply and invokes the target stack's own KillSwitchFunction, so
+  liquidation runs with that stack's credentials. Only allowlisted chat IDs
+  get a reply. The bot-scoped actions live in `src/ops.py`, shared by any
+  future adapter (webhook Lambda, MCP, REST). ([#59])
 - **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
   a few days after supersession (30 days in [#40], tightened to 3 in [#45]; the
   5 newest are always retained as rollback insurance); incomplete multipart
@@ -72,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#47]: https://github.com/vishwakt/LambdaForge/pull/47
 [#48]: https://github.com/vishwakt/LambdaForge/pull/48
 [#52]: https://github.com/vishwakt/LambdaForge/pull/52
+[#59]: https://github.com/vishwakt/LambdaForge/pull/59
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
