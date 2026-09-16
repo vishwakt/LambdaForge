@@ -264,7 +264,7 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-80 tests covering market hours, buy deduplication, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
+106 tests covering market hours, buy deduplication and fill reconciliation, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 

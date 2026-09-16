@@ -7,11 +7,13 @@ import time
 from datetime import datetime
 
 import schedule
+from alpaca.common.exceptions import APIError
 
 from src.client import (
     get_account_info,
     get_data_client,
     get_latest_quote,
+    get_order,
     get_positions,
     get_rate_limit_hits,
     get_trading_client,
@@ -28,6 +30,22 @@ from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
 
 logger = logging.getLogger("stock-trader")
+
+# Alpaca order statuses after which no further fills can arrive.
+_DEAD_ORDER_STATUSES = frozenset(
+    {
+        "canceled",
+        "expired",
+        "rejected",
+        "replaced",
+        "done_for_day",
+        "stopped",
+        "suspended",
+    }
+)
+# Pending buys looked up per monitor cycle. Fills normally land within one
+# cycle, so this only matters for draining a backlog under the 200 req/min cap.
+FILL_RECONCILE_BATCH = 50
 
 
 class TradingEngine:
@@ -404,6 +422,9 @@ class TradingEngine:
         account_info = get_account_info(trading_client)
         open_positions = get_positions(trading_client)
 
+        # Phase 0: Learn what the broker actually filled since last cycle
+        self._reconcile_buy_fills(trading_client)
+
         # Phase 1: Check trailing stop-losses (real-time quotes)
         self._check_trailing_stops(trading_client, data_client)
 
@@ -418,6 +439,68 @@ class TradingEngine:
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
+
+    def _reconcile_buy_fills(self, trading_client):
+        """Apply the broker's order state to buys we still have as 'submitted'.
+
+        A market buy is logged as 'submitted' when Alpaca accepts it; the fill
+        lands seconds later. Until it is recorded here the trade has no
+        fill_price (digests show "@ $0.00", the trailing stop guesses the
+        entry) and has_pending_buy() blocks that symbol+strategy from ever
+        being bought again. One lookup per pending buy, bounded per cycle so
+        a backlog drains without tripping Alpaca's rate limit.
+        """
+        for trade in self.trade_log.get_unreconciled_buys(FILL_RECONCILE_BATCH):
+            symbol, order_id = trade["symbol"], trade["order_id"]
+            try:
+                order = get_order(trading_client, order_id)
+            except APIError as e:
+                if e.status_code == 404:
+                    # Broker has no such order (e.g. DB from another account):
+                    # retire it so it neither blocks nor is retried every cycle.
+                    logger.warning(
+                        "BUY %s order %s not found at broker", symbol, order_id
+                    )
+                    self.trade_log.update_trade_status(trade["id"], "unknown")
+                else:
+                    logger.warning(
+                        "Fill check failed for %s (%s): %s", symbol, order_id, e
+                    )
+                continue
+            except Exception as e:
+                logger.warning("Fill check failed for %s (%s): %s", symbol, order_id, e)
+                continue
+
+            status = order["status"]
+            filled_qty = float(order["filled_qty"] or 0)
+            if status == "filled" or (
+                status in _DEAD_ORDER_STATUSES and filled_qty > 0
+            ):
+                fill_price = float(order["filled_avg_price"] or 0)
+                self.trade_log.mark_buy_filled(trade["id"], fill_price, filled_qty)
+                if filled_qty < float(trade["qty"]):
+                    logger.warning(
+                        "PARTIAL FILL: BUY %s %g of %g @ $%.2f (%s)",
+                        symbol,
+                        filled_qty,
+                        trade["qty"],
+                        fill_price,
+                        status,
+                    )
+                else:
+                    logger.info(
+                        "FILLED: BUY %s x%g @ $%.2f [%s]",
+                        symbol,
+                        filled_qty,
+                        fill_price,
+                        trade["strategy"],
+                    )
+            elif status in _DEAD_ORDER_STATUSES:
+                logger.warning(
+                    "BUY %s order %s %s with no fill", symbol, order_id, status
+                )
+                self.trade_log.update_trade_status(trade["id"], status)
+            # Anything else is still working at the broker — check again next cycle.
 
     def _check_trailing_stops(self, trading_client, data_client):
         """Check trailing stop-losses using real-time quotes."""
