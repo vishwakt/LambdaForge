@@ -150,6 +150,24 @@ class TradeLog:
         finally:
             conn.close()
 
+    def mark_buy_filled(self, trade_id: int, fill_price: float, filled_qty: float):
+        """Record the broker's fill: status, average price, and actual quantity.
+
+        qty is overwritten because a partially filled DAY order expires with
+        fewer shares than were requested; P&L on exit uses this qty.
+        """
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """UPDATE trades
+                   SET status = 'filled', fill_price = ?, qty = ?
+                   WHERE id = ?""",
+                (fill_price, filled_qty, trade_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def update_trailing_stop(
         self,
         trade_id: int,
@@ -182,6 +200,25 @@ class TradeLog:
                          WHERE exit_t.parent_trade_id = t.id
                      )
                    ORDER BY t.timestamp DESC""",
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_unreconciled_buys(self, limit: int = 50) -> list[dict]:
+        """Buys still 'submitted' on our side, newest first.
+
+        The broker's answer for each is applied by
+        TradingEngine._reconcile_buy_fills every monitor cycle.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM trades
+                   WHERE side = 'buy' AND status = 'submitted'
+                     AND order_id IS NOT NULL
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (limit,),
             ).fetchall()
             return [dict(r) for r in rows]
         finally:
@@ -538,7 +575,10 @@ class TradeLog:
 
         Used for deduplication — prevents the same signal from creating
         duplicate orders across scan cycles. Does NOT block pyramiding
-        from different strategies or after an order is filled.
+        from different strategies or after an order is filled. Relies on
+        _reconcile_buy_fills moving buys out of 'submitted' once the broker
+        reports the fill; without that every buy would block its
+        symbol+strategy forever.
         """
         conn = self._get_conn()
         try:

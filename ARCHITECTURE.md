@@ -88,6 +88,7 @@ MonitorStopsFunction
   ├── is_market_open() — exits early outside 09:30–16:00 ET Mon–Fri
   ├── _check_kill_switch()
   └── TradingEngine.monitor_stops()
+        ├── _reconcile_buy_fills() — record fill price/qty of pending buys (≤50 lookups/cycle)
         ├── _check_trailing_stops() — real-time quotes via Alpaca
         │     ├── Ratchet stop up to max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR); never lowered
         │     └── Sell if price <= trailing_stop
@@ -290,6 +291,9 @@ RiskManager.check()
         place_market_order("buy")
             ↓
         log_trade(status="submitted", stop_loss, take_profit)
+            ↓
+        Next MonitorStops cycle: get_order() → status="filled", fill_price, qty
+        (canceled/expired/rejected buys are retired so dedup no longer blocks them)
             ↓
         [Position monitored every 1 min by MonitorStops]
             ↓

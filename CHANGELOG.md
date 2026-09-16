@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Buy fills are now reconciled with the broker** — a market buy was logged
+  as `submitted` when Alpaca accepted it and nothing ever looked up the fill.
+  Every buy therefore stayed `submitted` forever: hourly digests printed
+  `@ $0.00`, the trailing stop guessed the entry price from the stop level,
+  and the buy-dedup check (which treats `submitted` as "still pending")
+  blocked that symbol+strategy from ever being bought again — Bot 2 had 491
+  buys across exactly 491 distinct symbol+strategy pairs. Each monitor cycle
+  now looks up pending buys (bounded to 50 per cycle so the backlog drains
+  under the rate limit) and records the fill price and filled quantity, or
+  retires orders that were canceled, expired, or rejected. ([#58])
 - **Holiday-aware market guard, idempotent exits, stale-quote guard** — on
   Labor Day 2026 the weekday/time heuristic let Bot 2 run, act on Friday's
   quotes, queue seven holiday sell orders (Alpaca accepts DAY orders while
@@ -62,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#47]: https://github.com/vishwakt/LambdaForge/pull/47
 [#48]: https://github.com/vishwakt/LambdaForge/pull/48
 [#52]: https://github.com/vishwakt/LambdaForge/pull/52
+[#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
 
