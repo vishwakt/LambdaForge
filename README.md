@@ -237,6 +237,39 @@ aws lambda invoke --function-name $KILL_FN \
 
 No CLI? Set `/stock-bot/kill-switch` → `kill` directly in the AWS Console. The next Lambda invocation picks it up.
 
+### From your phone (Telegram)
+
+A Telegram bot can operate any stack by name. Create a bot with
+[@BotFather](https://t.me/BotFather), message it once, read your chat ID from
+`https://api.telegram.org/bot<TOKEN>/getUpdates`, and put both in `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ALLOWED_CHAT_IDS=<your chat id>
+```
+
+Then run the poller on any machine with AWS CLI credentials for the account:
+
+```bash
+python -m src.telegram_bot
+```
+
+| Message | Effect |
+|---------|--------|
+| `/bots` | List bots and commands |
+| `/stock-bot-2 status` | Kill-switch state, equity, cash, open positions |
+| `/stock-bot-2 positions` | Open positions with unrealized P&L |
+| `/stock-bot-2 kill` | Shows what would be liquidated and asks you to confirm |
+| `/stock-bot-2 kill confirm` | Invokes that stack's KillSwitchFunction: cancels orders, sells everything, halts |
+| `/stock-bot-2 alive` | Resumes trading |
+
+Bot names are the SSM prefixes without slashes: `stock-bot`, `stock-bot-2`,
+`stock-bot-live`. Only chat IDs on the allowlist get a reply; anyone else is
+ignored silently. `kill` runs inside the target stack's own Lambda, so the
+poller never needs Alpaca credentials of its own — it needs
+`cloudformation:DescribeStacks`, `lambda:InvokeFunction`, and SSM read/write
+on the stack prefixes, all of which the deployer policy already grants.
+
 ---
 
 ## 🏗️ Architecture
