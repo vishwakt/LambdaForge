@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   liquidation runs with that stack's credentials. Only allowlisted chat IDs
   get a reply. The bot-scoped actions live in `src/ops.py`, shared by any
   future adapter (webhook Lambda, MCP, REST). ([#59])
+- **Telegram bot always on, one tap per command** — the paper stack now
+  deploys `TelegramOpsFunction` behind a Lambda Function URL (no API
+  Gateway). Telegram's `X-Telegram-Bot-Api-Secret-Token` header is verified
+  against `/stock-bot-ops/telegram-webhook-secret`; token and chat allowlist
+  live under the same prefix. Every reply carries a button keyboard covering
+  all bots and commands, and the `kill` prompt offers a single confirm
+  button. The deployer policy template gains the four `lambda:*FunctionUrlConfig`
+  actions. ([#60])
 - **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
   a few days after supersession (30 days in [#40], tightened to 3 in [#45]; the
   5 newest are always retained as rollback insurance); incomplete multipart
@@ -80,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#48]: https://github.com/vishwakt/LambdaForge/pull/48
 [#52]: https://github.com/vishwakt/LambdaForge/pull/52
 [#59]: https://github.com/vishwakt/LambdaForge/pull/59
+[#60]: https://github.com/vishwakt/LambdaForge/pull/60
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
