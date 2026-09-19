@@ -32,6 +32,9 @@ Mappings:
 Conditions:
   HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
   IsSingleMinute: !Equals [!Ref MonitorIntervalMinutes, 1]
+  # The Telegram ops function controls every stack, so it is deployed once,
+  # alongside the paper stack.
+  IsPaper: !Equals [!Ref Environment, paper]
 
 Globals:
   Function:
@@ -317,7 +320,71 @@ Resources:
       DockerContext: .
       Dockerfile: Dockerfile
 
+  # --- Telegram ops (paper stack only; controls all three stacks) ---
+
+  TelegramOpsRole:
+    Type: AWS::IAM::Role
+    Condition: IsPaper
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TelegramOps
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Bot settings + every stack's params (kill switch, Alpaca keys)
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                  - ssm:PutParameter
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot-ops/*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot/*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot-2/*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot-live/*"
+              # Find and invoke each stack's KillSwitchFunction
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/stock-trading-bot*/*"
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:stock-trading-bot*-KillSwitchFunction-*"
+
+  # Lambda Function: Telegram webhook (Function URL; secret header checked in code)
+  TelegramOpsFunction:
+    Type: AWS::Serverless::Function
+    Condition: IsPaper
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - handler.telegram_webhook_handler
+      Role: !GetAtt TelegramOpsRole.Arn
+      Timeout: 90
+      Environment:
+        Variables:
+          OPS_SSM_PREFIX: /stock-bot-ops/
+      FunctionUrlConfig:
+        AuthType: NONE
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
 Outputs:
+  TelegramWebhookUrl:
+    Condition: IsPaper
+    Description: Register with Telegram via setWebhook (see README)
+    Value: !GetAtt TelegramOpsFunctionUrl.FunctionUrl
   DailyScanFunctionArn:
     Description: Daily Scan Lambda ARN
     Value: !GetAtt DailyScanFunction.Arn

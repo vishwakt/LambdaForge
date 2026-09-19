@@ -239,42 +239,66 @@ No CLI? Set `/stock-bot/kill-switch` → `kill` directly in the AWS Console. The
 
 ### From your phone (Telegram)
 
-A Telegram bot can operate any stack by name. Create a bot with
-[@BotFather](https://t.me/BotFather), message it once, read your chat ID from
-`https://api.telegram.org/bot<TOKEN>/getUpdates`, and put both in `.env`:
-
-```
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_ALLOWED_CHAT_IDS=<your chat id>
-```
-
-Then run the poller on any machine with AWS CLI credentials for the account:
-
-```bash
-python -m src.telegram_bot
-```
+A Telegram bot can operate any stack by name. Every reply carries a button
+keyboard, so after the first `/bots` each command is one tap.
 
 | Message | Effect |
 |---------|--------|
-| `/bots` | List bots and commands |
+| `/bots` | List bots and show the command keyboard |
 | `/stock-bot-2 status` | Kill-switch state, equity, cash, open positions |
 | `/stock-bot-2 positions` | Open positions with unrealized P&L |
-| `/stock-bot-2 kill` | Shows what would be liquidated and asks you to confirm |
+| `/stock-bot-2 kill` | Shows what would be liquidated and offers a confirm button |
 | `/stock-bot-2 kill confirm` | Invokes that stack's KillSwitchFunction: cancels orders, sells everything, halts |
 | `/stock-bot-2 alive` | Resumes trading |
 
 Bot names are the SSM prefixes without slashes: `stock-bot`, `stock-bot-2`,
 `stock-bot-live`. Only chat IDs on the allowlist get a reply; anyone else is
 ignored silently. `kill` runs inside the target stack's own Lambda, so the
-poller never needs Alpaca credentials of its own — it needs
-`cloudformation:DescribeStacks`, `lambda:InvokeFunction`, and SSM read/write
-on the stack prefixes, all of which the deployer policy already grants.
+bot never holds Alpaca credentials of its own.
+
+**Setup (once):** create a bot with [@BotFather](https://t.me/BotFather),
+message it once, and read your chat ID from
+`https://api.telegram.org/bot<TOKEN>/getUpdates`.
+
+**Deployed (always on):** the paper stack includes `TelegramOpsFunction`
+behind a Lambda Function URL. Create three parameters in SSM Parameter Store,
+then deploy the paper stack:
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `/stock-bot-ops/telegram-token` | SecureString | BotFather token |
+| `/stock-bot-ops/telegram-chat-ids` | String | Your chat ID (comma-separated for several) |
+| `/stock-bot-ops/telegram-webhook-secret` | SecureString | Random string, e.g. `openssl rand -hex 32` |
+
+Register the webhook once, with the URL from the stack's `TelegramWebhookUrl`
+output and the same secret:
+
+```bash
+curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+  -d "url=<TelegramWebhookUrl>" \
+  -d "secret_token=<webhook secret>" \
+  -d 'allowed_updates=["message"]'
+```
+
+Telegram sends that secret in a header on every call; the function answers
+`403` to anything else. `getWebhookInfo` confirms the registration.
+
+**Local (for development):** put `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_ALLOWED_CHAT_IDS` in `.env` and run the poller on any machine with
+AWS CLI credentials:
+
+```bash
+python -m src.telegram_bot
+```
+
+Polling and the webhook are mutually exclusive: run `deleteWebhook` before
+polling, and `setWebhook` again afterwards.
 
 ---
 
 ## 🏗️ Architecture
 
-Six Lambda functions — five on EventBridge schedules, plus a manually invoked kill switch:
+Six Lambda functions per stack — five on EventBridge schedules, plus a manually invoked kill switch — and a seventh in the paper stack only for Telegram:
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
@@ -284,6 +308,7 @@ Six Lambda functions — five on EventBridge schedules, plus a manually invoked 
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |
 | `KillSwitch` | Manual invoke | Emergency halt — liquidates everything |
+| `TelegramOps` | Telegram webhook (paper stack) | Status, positions, kill, alive for all three stacks |
 
 > Schedules run on EventBridge Scheduler with `ScheduleExpressionTimezone: America/New_York`, so these times hold across daylight-saving transitions.
 
@@ -297,7 +322,7 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-106 tests covering market hours, buy deduplication and fill reconciliation, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
+149 tests covering market hours, buy deduplication and fill reconciliation, the Telegram ops bot, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 

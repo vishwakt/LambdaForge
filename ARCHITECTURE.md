@@ -53,6 +53,7 @@ risk parameters and flip the kill switch without redeploying.
 | `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
 | `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
+| `TelegramOpsFunction` | Telegram webhook via Lambda Function URL (paper stack only) | `/<bot> status\|positions\|kill\|alive` for all three stacks; `kill` invokes that stack's `KillSwitchFunction`. Secret-header check + chat-ID allowlist; settings under `/stock-bot-ops/` |
 
 > The four cron triggers are EventBridge Scheduler schedules with `ScheduleExpressionTimezone: America/New_York` — cron is evaluated in Eastern local time, so the times above hold across daylight-saving transitions. (Classic EventBridge rules evaluate cron in UTC only.) The stop-loss monitor is a plain `rate()` rule; the handler no-ops outside market hours.
 
