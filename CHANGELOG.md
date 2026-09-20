@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pullback in Uptrend strategy (`pullback_uptrend`), not yet deployable** —
+  buy a dip when close is above the 50-day SMA and RSI(2) is below 10; exit on
+  RSI(2) above 60, a close below the SMA, or 3 trading days held. Evaluated on
+  completed daily bars only, since the monitor scans every minute and a
+  partial bar's RSI keeps moving. Two of the three exits cannot be expressed
+  through the `Strategy` interface, which only sees bars: the holding-period
+  exit needs the entry date, and the engine's own trailing stop would be a
+  fourth exit. Both are declared as class attributes (`max_holding_days`,
+  `uses_trailing_stop`) for the engine to honour, and **neither is wired up
+  yet** — see [docs/PULLBACK-UPTREND.md](docs/PULLBACK-UPTREND.md). ([#63])
+- **Backtest harness (`tools/backtest.py`)** — daily-bar simulator for any
+  registered strategy, outside the Lambda image. Signals from the close of a
+  completed bar fill at the *next* open, never at the signal bar's close, so a
+  mean-reversion entry is not credited with the down-close that triggered it.
+  Reports total return, max drawdown, win rate, trade count, average return
+  per trade, average holding period, per-symbol results and the equity curve.
+  Slippage, dividends and interest on idle cash are not modelled. This closes
+  the "no backtest framework" gap listed under Known limitations in 0.1.0.
+  ([#63])
+
 - **ECR lifecycle policy and cost allocation tags** — container images had no
   expiry, so every deploy left two behind permanently: the previous `:latest`,
   orphaned by the new push, and SAM's own tagged image. Across the three
@@ -128,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#60]: https://github.com/vishwakt/LambdaForge/pull/60
 [#61]: https://github.com/vishwakt/LambdaForge/pull/61
 [#62]: https://github.com/vishwakt/LambdaForge/pull/62
+[#63]: https://github.com/vishwakt/LambdaForge/pull/63
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
