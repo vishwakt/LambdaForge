@@ -25,7 +25,39 @@ bar's close — and therefore its RSI — keeps moving.
 |---|-----------|
 | 1 | RSI(2) closes above 60 |
 | 2 | Close is below the 50-day simple moving average |
-| 3 | The position has been held 3 trading days |
+
+### Why there is no holding-period exit
+
+An earlier draft added a third exit: close the position after 3 trading
+days. It was dropped on measurement, not preference.
+
+| Test | With 3-day exit | Without |
+|---|---|---|
+| SPY, 2021 to 2025 | +21.94%, 28 trades | identical, rule never fired |
+| Six-ETF basket, 2021 to 2025 | +12.34%, 65.0% win | +13.66%, 68.2% win |
+| 75 watchlist symbols, three cohorts, 1,650 trades | 60.3% win pooled | 62.7% win pooled |
+
+Across three random 25-symbol cohorts the win rate improved without the rule
+in **all three**, by 3.1, 2.6 and 1.6 points. Profit was indistinguishable
+from noise: the pooled difference was $580 on $31,283, and its sign flipped
+between cohorts. The mechanism is that cutting every trade at three days
+closes positions that had not reverted yet, and enough of them revert on day
+four or five to cost more than the rule saves.
+
+Two caveats on strength. No single cohort is statistically significant on
+its own, roughly one to one and a half standard errors, and three matching
+signs would occur by chance about a quarter of the time. The fair reading is
+that the rule consistently costs win rate and does nothing measurable for
+profit.
+
+It was also the only rule that could not be expressed through the `Strategy`
+interface, since it needs the entry date and that interface only ever sees
+bars. Dropping it removed an engine change, a new concept in the strategy
+contract, and the maintenance that came with both.
+
+Without any cap the average holding period is 2.8 sessions and the longest
+trade in five years ran 11, because the moving-average exit acts as a natural
+backstop for a position that stays stuck.
 
 **Constraints.** Long only. No leverage, no short selling, no options, no
 crypto, no intraday signals. Unused capital is held as cash. RSI uses
@@ -43,22 +75,22 @@ symbol-agnostic, so switching between these profiles is configuration, not a
 code change: the universe is `scheduler.symbols`, and the caps are the
 `max_positions`, `max_position_pct` and `max_concentration` SSM parameters.
 
-## What the engine cannot honour yet
+## Engine support
 
-Two of the three exit rules are outside what a `Strategy` can express today,
-because `generate_signal(symbol, bars)` only ever sees bars. Both are
-declared as class attributes for the engine to read, and **neither is wired
-up yet**. Until they are, this strategy must not be treated as deployed.
+One rule depends on the engine. `uses_trailing_stop = False` declares that
+this strategy owns its exits, so `_check_trailing_stops` leaves its
+`stop_loss` standing as a hard floor instead of ratcheting it up. Without
+that, the ratchet is a third exit the strategy never asked for: it applies
+`max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR)` to every position, and on a
+low-volatility ETF the ATR leg sits within about 2% of the high-water mark,
+so it fires before either rule above. That opt-out landed in
+[#64](https://github.com/vishwakt/LambdaForge/pull/64).
 
-| Gap | Declared as | What is needed |
-|-----|-------------|----------------|
-| Holding-period exit | `max_holding_days = 3` | The engine knows the entry timestamp from the trade log; `_check_exit_signals` has to compare it against the session count and sell. ~20 lines plus tests. |
-| Engine trailing stop is a fourth exit | `uses_trailing_stop = False` | `_check_trailing_stops` must skip trades whose strategy opts out. Today it applies `max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR)` to every position; on a low-volatility ETF the ATR leg sits within about 2% of the high-water mark, so it would close positions well before any rule above fires. ~5 lines plus tests. |
-
-A third mismatch is sizing. `RiskManager` sizes positions as a percentage of
-portfolio value, not in fixed dollars, so `$25,000` is only exact while
-equity sits at the value the percentage was set from. Either accept the
-drift, or add a fixed-dollar sizing mode (~10 lines).
+One mismatch remains, and it is cosmetic rather than behavioural.
+`RiskManager` sizes positions as a percentage of portfolio value, not in
+fixed dollars, so `$25,000` is only exact while equity sits at the value the
+percentage was set from. Either accept the drift, or add a fixed-dollar
+sizing mode (~10 lines).
 
 One deliberate deviation is already in the code: `RiskManager` rejects any
 BUY without a stop, so the strategy attaches a disaster stop 20% below
@@ -81,10 +113,13 @@ python -m tools.backtest --symbols SPY QQQ IWM XLK XLF XLE \
 ```
 
 Modelling choices, all conservative, are listed in the module docstring. The
-two that matter most: a signal from the close of day *t* is **filled at the
-open of day t+1**, never at the signal bar's close; and `--max-holding-days 3`
-raises the time exit once three sessions have passed since the entry bar,
-filled at the next open.
+one that matters most: a signal from the close of day *t* is **filled at the
+open of day t+1**, never at the signal bar's close. Filling at the signal
+close would credit a mean-reversion entry with the very down-close that
+triggered it.
+
+`--max-holding-days` is off by default and is kept only for A/B experiments
+like the one above.
 
 Not modelled: slippage, dividends, and interest on idle cash. The first
 makes live results slightly worse; the other two make them slightly better.

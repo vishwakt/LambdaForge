@@ -13,10 +13,11 @@ any number this produces:
   of day *t* is filled at the **open of day t+1**. Filling at the signal
   close would be look-ahead and would flatter a mean-reversion strategy
   badly, because the entry trigger is itself a sharp down-close.
-* **Holding period counts sessions since the entry bar.** ``sessions_held``
-  is 0 on the day the position is opened, so ``--max-holding-days 3`` means
-  the time exit is raised at the close of the third session after entry and
-  filled at the next open.
+* **There is no time exit unless you ask for one.** ``--max-holding-days``
+  is off by default, since no strategy here uses a holding cap. When set,
+  ``sessions_held`` is 0 on the day the position is opened, so
+  ``--max-holding-days 3`` raises the exit at the close of the third session
+  after entry, filled at the next open. It is kept for A/B experiments.
 * **Fills are at the open, with no slippage and no commission.** Alpaca is
   commission-free; slippage on these ETFs is small but not zero, so live
   results should be slightly worse.
@@ -134,7 +135,7 @@ def run(
     position_size: float = 25_000.0,
     max_positions: int = 1,
     max_exposure: float | None = None,
-    max_holding_days: int = 3,
+    max_holding_days: int | None = None,
     starting_capital: float | None = None,
 ) -> Result:
     """Walk the calendar one completed bar at a time, filling at the next open."""
@@ -217,7 +218,7 @@ def run(
                 sessions_held = len(df.loc[pos.entry_date : day]) - 1
                 if signal.action.value == "SELL":
                     pos.exit_signal = signal.reason
-                elif sessions_held >= max_holding_days:
+                elif max_holding_days is not None and sessions_held >= max_holding_days:
                     pos.exit_signal = f"Held {sessions_held} trading days"
             elif signal.action.value == "BUY":
                 pending_entries.append(symbol)
@@ -360,7 +361,12 @@ def main(argv=None) -> int:
     p.add_argument("--position-size", type=float, default=25_000.0)
     p.add_argument("--max-positions", type=int, default=1)
     p.add_argument("--max-exposure", type=float, default=None)
-    p.add_argument("--max-holding-days", type=int, default=3)
+    p.add_argument(
+        "--max-holding-days",
+        type=int,
+        default=None,
+        help="optional time exit, in sessions since entry; off by default",
+    )
     p.add_argument("--equity-csv", default=None, help="write the equity curve here")
     p.add_argument("--json", action="store_true", help="print the summary as JSON")
     args = p.parse_args(argv)

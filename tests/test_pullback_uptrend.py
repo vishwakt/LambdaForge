@@ -51,11 +51,16 @@ class TestRegistration:
         assert strategy.rsi_period == 2
         assert strategy.rsi_entry == 10.0
         assert strategy.rsi_exit == 60.0
-        assert strategy.max_holding_days == 3
 
     def test_declares_that_it_owns_its_exits(self):
-        """The engine's trailing stop would be a fourth exit rule."""
+        """The engine's trailing stop would be a third exit rule."""
         assert PullbackUptrendStrategy.uses_trailing_stop is False
+
+    def test_has_no_holding_period_concept(self, strategy):
+        """Dropped on evidence: across 1,650 trades in three random cohorts a
+        3-day cap lowered the win rate every time and left profit inside the
+        noise, and it was the only rule needing engine support."""
+        assert not hasattr(strategy, "max_holding_days")
 
 
 class TestEntry:
@@ -128,4 +133,5 @@ class TestGuards:
 
     def test_describe_states_the_rules(self, strategy):
         text = strategy.describe()
-        assert "SMA50" in text and "RSI(2)" in text and "3 trading days" in text
+        assert "SMA50" in text and "RSI(2)" in text
+        assert "trading days" not in text

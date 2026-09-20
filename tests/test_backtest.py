@@ -105,6 +105,20 @@ class TestNoLookAhead:
 
 
 class TestHoldingPeriodExit:
+    """Kept as a harness option for A/B experiments. No strategy uses it."""
+
+    def test_off_by_default(self, scripted):
+        name = scripted({("SPY", "2024-01-03"): Action.BUY})
+        result = backtest.run(
+            {"SPY": frame(DAYS)},
+            start="2024-01-02",
+            end="2024-01-11",
+            strategy_name=name,
+            position_size=10_000,
+            max_positions=1,
+        )
+        assert not any(t.exit_reason.startswith("Held") for t in result.trades)
+
     def test_time_exit_after_three_sessions(self, scripted):
         """Entry 01-04; sessions 01-04, 01-05, 01-08 make three held bars, so
         the exit is raised at the 01-09 close... counted from the entry bar."""

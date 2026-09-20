@@ -9,16 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Pullback in Uptrend strategy (`pullback_uptrend`), not yet deployable** —
-  buy a dip when close is above the 50-day SMA and RSI(2) is below 10; exit on
-  RSI(2) above 60, a close below the SMA, or 3 trading days held. Evaluated on
-  completed daily bars only, since the monitor scans every minute and a
-  partial bar's RSI keeps moving. Two of the three exits cannot be expressed
-  through the `Strategy` interface, which only sees bars: the holding-period
-  exit needs the entry date, and the engine's own trailing stop would be a
-  fourth exit. Both are declared as class attributes (`max_holding_days`,
-  `uses_trailing_stop`) for the engine to honour, and **neither is wired up
-  yet** — see [docs/PULLBACK-UPTREND.md](docs/PULLBACK-UPTREND.md). ([#63])
+- **Pullback in Uptrend strategy (`pullback_uptrend`)** — buy a dip when
+  close is above the 50-day SMA and RSI(2) is below 10; exit on RSI(2) above
+  60 or a close below the SMA. Evaluated on completed daily bars only, since
+  the monitor scans every minute and a partial bar's RSI keeps moving.
+  Registered but enabled nowhere, so it changes no running bot.
+  A third exit, a 3-trading-day holding cap, was specified and then dropped
+  on measurement: it never fired at all on SPY over 2021-2025, and across
+  three random 25-symbol cohorts from the watchlist, 1,650 trades, it lowered
+  the win rate in all three while leaving profit inside the noise. It was
+  also the only rule that could not be expressed through the `Strategy`
+  interface, which never sees the entry date. The strategy does rely on the
+  `uses_trailing_stop` opt-out from [#64], without which the engine's ratchet
+  would close positions before either remaining rule fires. See
+  [docs/PULLBACK-UPTREND.md](docs/PULLBACK-UPTREND.md). ([#63])
 - **Backtest harness (`tools/backtest.py`)** — daily-bar simulator for any
   registered strategy, outside the Lambda image. Signals from the close of a
   completed bar fill at the *next* open, never at the signal bar's close, so a
@@ -149,6 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#61]: https://github.com/vishwakt/LambdaForge/pull/61
 [#62]: https://github.com/vishwakt/LambdaForge/pull/62
 [#63]: https://github.com/vishwakt/LambdaForge/pull/63
+[#64]: https://github.com/vishwakt/LambdaForge/pull/64
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

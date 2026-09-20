@@ -6,24 +6,25 @@ index and sector ETFs.
 
 Rules, evaluated only on *completed* daily bars:
 
-  Entry (long)   close > SMA(50)  AND  RSI(2) < 10
-  Exit (first)   RSI(2) > 60
-                 OR close < SMA(50)
-                 OR held for ``max_holding_days`` trading days
+  Entry (long)    close > SMA(50)  AND  RSI(2) < 10
+  Exit (either)   RSI(2) > 60  OR  close < SMA(50)
 
 Long only. No leverage, no shorting, no options, no intraday signals.
 
-Two of those rules live outside this class, because the ``Strategy``
-interface only ever sees bars:
+There is deliberately **no holding-period exit**. An earlier draft capped
+positions at 3 trading days. Measured over 2021-2025 it never fired at all
+on SPY, and across three random 25-symbol cohorts from the watchlist, 1,650
+trades in total, it lowered the win rate in all three while leaving profit
+indistinguishable from noise. It was also the only rule that could not be
+expressed here, since it needs the entry date and this interface only ever
+sees bars. It was dropped on that evidence.
 
-* **The holding-period exit needs the entry date**, which only the trade log
-  knows. ``max_holding_days`` declares the limit; the engine has to enforce
-  it. Until it does, a position is held until RSI or the SMA closes it.
-* **The engine's trailing stop is a fourth exit.** ``uses_trailing_stop``
-  declares that this strategy manages its own exits. Until the engine reads
-  that flag, ``_check_trailing_stops`` can close a position before any of the
-  three rules above fire — on a low-volatility ETF the ATR stop sits inside
-  2% of the high-water mark, so it would fire often.
+One rule still depends on the engine: ``uses_trailing_stop = False``
+declares that this strategy owns its exits, so the engine leaves its
+``stop_loss`` as a hard floor instead of ratcheting it. Without that, the
+ratchet is a third exit the strategy never asked for, and on a
+low-volatility ETF its ATR leg sits within about 2% of the high-water mark,
+so it would fire before either rule above.
 
 See ``docs/PULLBACK-UPTREND.md`` for the deployment checklist.
 """
@@ -42,7 +43,6 @@ ET = ZoneInfo("America/New_York")
 
 class PullbackUptrendStrategy(Strategy):
     # Read by the engine, not by this class — see the module docstring.
-    max_holding_days: int = 3
     uses_trailing_stop: bool = False
 
     def __init__(
@@ -51,14 +51,12 @@ class PullbackUptrendStrategy(Strategy):
         rsi_period: int = 2,
         rsi_entry: float = 10.0,
         rsi_exit: float = 60.0,
-        max_holding_days: int = 3,
         disaster_stop_pct: float = 0.20,
     ):
         self.sma_period = sma_period
         self.rsi_period = rsi_period
         self.rsi_entry = rsi_entry
         self.rsi_exit = rsi_exit
-        self.max_holding_days = max_holding_days
         # The risk manager rejects a BUY with no stop. This is a disaster
         # stop, deliberately far away so it does not pre-empt the three
         # documented exits; it is not part of the strategy's edge.
@@ -72,8 +70,8 @@ class PullbackUptrendStrategy(Strategy):
         return (
             f"Pullback in Uptrend (SMA {self.sma_period}, RSI {self.rsi_period}): "
             f"buy when close > SMA{self.sma_period} and RSI({self.rsi_period}) < "
-            f"{self.rsi_entry:g}; exit on RSI > {self.rsi_exit:g}, close below "
-            f"SMA{self.sma_period}, or {self.max_holding_days} trading days held."
+            f"{self.rsi_entry:g}; exit on RSI > {self.rsi_exit:g} or a close "
+            f"below SMA{self.sma_period}."
         )
 
     # --- Indicators ---
