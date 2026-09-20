@@ -115,9 +115,42 @@ def get_positions(client: TradingClient) -> list[dict]:
             "current_price": float(p.current_price),
             "unrealized_pl": float(p.unrealized_pl),
             "unrealized_plpc": float(p.unrealized_plpc),
+            "unrealized_intraday_pl": float(p.unrealized_intraday_pl or 0),
+            "unrealized_intraday_plpc": float(p.unrealized_intraday_plpc or 0),
         }
         for p in positions
     ]
+
+
+def get_last_buy_fills(trading_client: TradingClient, symbols: list[str]) -> dict:
+    """Map symbol → datetime of its most recent filled buy.
+
+    One call for every symbol. Fails soft: an empty map just means the
+    caller shows positions without an entry date.
+    """
+    if not symbols:
+        return {}
+    try:
+        orders = trading_client.get_orders(
+            GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED,
+                side=OrderSide.BUY,
+                symbols=list(symbols),
+                limit=500,
+            )
+        )
+    except Exception as e:
+        logger.warning("Buy-fill lookup failed: %s", e)
+        return {}
+
+    fills: dict = {}
+    for order in orders:
+        filled_at = getattr(order, "filled_at", None)
+        if filled_at is None:
+            continue
+        if order.symbol not in fills or filled_at > fills[order.symbol]:
+            fills[order.symbol] = filled_at
+    return fills
 
 
 def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dict:

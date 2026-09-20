@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Change a bot's strategies from Telegram** — `/<bot> strategies` shows
+  every strategy with a toggle; `/<bot> on <name>` and `/<bot> off <name>`
+  rewrite that bot's `strategies` SSM parameter. Each stack can run a
+  different set, and a change takes effect on the next scheduled run with no
+  redeploy and no restart. Turning them all off is a soft pause: no new
+  entries and no signal exits, while trailing stops keep running. ([#61])
+- **Two-tap Telegram navigation** — the first screen picks a bot, the second
+  picks an action, and every reply carries the keyboard for wherever you are,
+  so more bots and more actions can be added without the menu growing
+  unusable. ([#61])
+- **Richer position detail** — `/<bot> positions` now shows each holding's
+  entry date, today's P&L and total P&L, in dollars and percent, marked 🟢 or
+  🔴, sorted by total P&L, with portfolio totals on top. ([#61])
+
 - **Kill switch and status from Telegram** — `python -m src.telegram_bot`
   long-polls a Telegram bot and answers `/<bot> status|positions|kill|alive`
   for `stock-bot`, `stock-bot-2`, and `stock-bot-live`. `kill` requires a
@@ -53,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SSM config changes now reach a running bot** — `load_ssm_params` cached
+  every parameter at module level and nothing ever cleared it, so a warm
+  Lambda container kept whatever configuration it started with. Since the
+  monitor runs every minute, containers stay warm for hours, and an edited
+  risk limit or strategy list could sit unread that whole time — the
+  "zero-redeploy config" in the README was only true on a cold start. Each
+  invocation now re-reads the `String` parameters. `SecureString`
+  credentials stay cached, so the refresh adds no KMS decrypts and no cost.
+  ([#61])
 - **Buy fills are now reconciled with the broker** — a market buy was logged
   as `submitted` when Alpaca accepted it and nothing ever looked up the fill.
   Every buy therefore stayed `submitted` forever: hourly digests printed
@@ -89,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#52]: https://github.com/vishwakt/LambdaForge/pull/52
 [#59]: https://github.com/vishwakt/LambdaForge/pull/59
 [#60]: https://github.com/vishwakt/LambdaForge/pull/60
+[#61]: https://github.com/vishwakt/LambdaForge/pull/61
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
