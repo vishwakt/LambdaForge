@@ -89,10 +89,25 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Create ECR repo if needed
+      - name: Ensure ECR repo, cost tags, and lifecycle policy
+        env:
+          ECR_REPO: stock-trading-bot-2
+          ENVIRONMENT: experimental
         run: |
-          aws ecr describe-repositories --repository-names stock-trading-bot-2 2>/dev/null || \
-          aws ecr create-repository --repository-name stock-trading-bot-2
+          aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_REPO"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          # ECR repos live outside the CloudFormation stack, so stack tags do
+          # not reach them. Tag explicitly or this cost is unattributable.
+          aws ecr tag-resource \
+            --resource-arn "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/${ECR_REPO}" \
+            --tags Key=Project,Value=stock-trading-bot Key=Environment,Value="$ENVIRONMENT"
+          # Every deploy leaves two images behind: the orphaned previous
+          # :latest, and SAM's own tagged push. Without this they accumulate
+          # forever. Idempotent — re-applying the same policy is a no-op.
+          aws ecr put-lifecycle-policy \
+            --repository-name "$ECR_REPO" \
+            --lifecycle-policy-text file://ecr-lifecycle-policy.json
 
       - name: Build and push Docker image
         run: |
@@ -116,6 +131,7 @@ jobs:
             --resolve-s3 \
             --image-repository ${{ steps.ecr-login.outputs.registry }}/stock-trading-bot-2 \
             --capabilities CAPABILITY_IAM \
+            --tags Project=stock-trading-bot Environment=experimental \
             --parameter-overrides \
               NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }} \
               Environment=experimental

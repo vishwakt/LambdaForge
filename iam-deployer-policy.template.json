@@ -117,7 +117,10 @@
         "ecr:ListTagsForResource",
         "ecr:TagResource",
         "ecr:PutLifecyclePolicy",
-        "ecr:DeleteLifecyclePolicy"
+        "ecr:GetLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:StartLifecyclePolicyPreview",
+        "ecr:GetLifecyclePolicyPreview"
       ],
       "Resource": [
         "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*",
