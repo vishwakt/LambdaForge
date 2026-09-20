@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ECR lifecycle policy and cost allocation tags** — container images had no
+  expiry, so every deploy left two behind permanently: the previous `:latest`,
+  orphaned by the new push, and SAM's own tagged image. Across the three
+  repositories that had reached 152 images and ~37 GB nominal, which was the
+  single largest line on the AWS bill. `ecr-lifecycle-policy.json` now expires
+  untagged images after 3 days (matching the `trades.db` version window) and
+  caps each repository at the 10 most recent images, roughly the last five
+  deploys. Applied idempotently by all three deploy workflows.
+  Separately, the workflows now pass stack-level `--tags` to `sam deploy`, which
+  CloudFormation propagates to every taggable resource in the stack, and tag the
+  ECR repositories explicitly since they are created outside the stack and stack
+  tags never reach them. Activating `Project` and `Environment` as cost
+  allocation tags in the billing console then gives a real per-stack cost
+  breakdown. ([#62])
 - **Change a bot's strategies from Telegram** — `/<bot> strategies` shows
   every strategy with a toggle; `/<bot> on <name>` and `/<bot> off <name>`
   rewrite that bot's `strategies` SSM parameter. Each stack can run a
@@ -113,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#59]: https://github.com/vishwakt/LambdaForge/pull/59
 [#60]: https://github.com/vishwakt/LambdaForge/pull/60
 [#61]: https://github.com/vishwakt/LambdaForge/pull/61
+[#62]: https://github.com/vishwakt/LambdaForge/pull/62
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
