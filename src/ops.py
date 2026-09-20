@@ -20,11 +20,15 @@ import boto3
 from alpaca.trading.client import TradingClient
 from botocore.exceptions import ClientError
 
-from src.client import get_account_info, get_positions
+from src.client import get_account_info, get_last_buy_fills, get_positions
+from src.strategies import STRATEGIES
 
 logger = logging.getLogger("stock-trader")
 
 BOTS = ("stock-bot", "stock-bot-2", "stock-bot-live")
+
+# Every strategy the deployed image can run, in registry order.
+AVAILABLE_STRATEGIES = tuple(STRATEGIES)
 
 
 @dataclass(frozen=True)
@@ -96,10 +100,16 @@ def status(bot: Bot) -> dict:
     client = _trading_client(bot, params)
     account = get_account_info(client)
     open_positions = get_positions(client)
+    configured = params.get("strategies")
     return {
         "bot": bot.name,
         "trading_mode": params.get("trading_mode", "paper"),
         "kill_switch": get_kill_switch(bot),
+        "strategies": (
+            [s.strip() for s in configured.split(",") if s.strip()]
+            if configured is not None
+            else default_strategies()
+        ),
         "equity": account["equity"],
         "cash": account["cash"],
         "positions": len(open_positions),
@@ -108,7 +118,67 @@ def status(bot: Bot) -> dict:
 
 
 def positions(bot: Bot) -> list[dict]:
-    return get_positions(_trading_client(bot, _stack_params(bot)))
+    """Open positions, each with today's P&L, total P&L, and entry date."""
+    client = _trading_client(bot, _stack_params(bot))
+    rows = get_positions(client)
+    fills = get_last_buy_fills(client, [r["symbol"] for r in rows])
+    for row in rows:
+        row["bought_at"] = fills.get(row["symbol"])
+    rows.sort(key=lambda r: r["unrealized_pl"], reverse=True)
+    return rows
+
+
+# --- Strategy selection ---
+
+
+def get_strategies(bot: Bot) -> list[str]:
+    """Strategies this bot currently runs.
+
+    The SSM parameter wins when set; otherwise the bot runs the list baked
+    into config.json, so that is what gets reported.
+    """
+    value = _stack_params(bot).get("strategies")
+    if value is None:
+        return default_strategies()
+    return [s.strip() for s in value.split(",") if s.strip()]
+
+
+def default_strategies() -> list[str]:
+    """The config.json list, used when no SSM parameter is set."""
+    from src.config import PROJECT_ROOT
+
+    try:
+        with open(PROJECT_ROOT / "config.json") as f:
+            return list(json.load(f).get("scheduler", {}).get("strategies", []))
+    except Exception as e:
+        logger.warning("Could not read config.json strategy defaults: %s", e)
+        return []
+
+
+def set_strategies(bot: Bot, names: list[str]) -> list[str]:
+    """Write the bot's strategy list to SSM. Returns the list as stored."""
+    unknown = [n for n in names if n not in AVAILABLE_STRATEGIES]
+    if unknown:
+        raise ValueError(f"unknown strategies: {', '.join(unknown)}")
+    # Registry order, de-duplicated, so the stored value is stable
+    ordered = [s for s in AVAILABLE_STRATEGIES if s in set(names)]
+    boto3.client("ssm").put_parameter(
+        Name=f"{bot.prefix}strategies",
+        Value=",".join(ordered),
+        Type="String",
+        Overwrite=True,
+    )
+    logger.info("%s: strategies set to %s", bot.name, ordered or "(none)")
+    return ordered
+
+
+def toggle_strategy(bot: Bot, name: str, enabled: bool) -> list[str]:
+    """Turn one strategy on or off, leaving the rest alone."""
+    if name not in AVAILABLE_STRATEGIES:
+        raise ValueError(f"unknown strategy: {name}")
+    current = set(get_strategies(bot))
+    current.add(name) if enabled else current.discard(name)
+    return set_strategies(bot, list(current))
 
 
 # --- Mutations ---

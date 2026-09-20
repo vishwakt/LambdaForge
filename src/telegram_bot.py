@@ -14,8 +14,12 @@ Updates reach ``handle_update`` one of two ways:
   ``TELEGRAM_BOT_TOKEN`` / ``TELEGRAM_ALLOWED_CHAT_IDS`` in ``.env``.
 
 Only chat IDs on the allowlist are answered; everything else is dropped
-without a reply so the bot does not reveal that it exists. Replies carry a
-reply keyboard so every command is one tap.
+without a reply so the bot does not reveal that it exists.
+
+Navigation is two taps — pick a bot, then pick an action — and every reply
+carries the keyboard for wherever you are, so typing stays optional::
+
+    /bots  →  /stock-bot-2  →  /stock-bot-2 strategies  →  /stock-bot-2 on rsi_macd
 """
 
 from __future__ import annotations
@@ -39,26 +43,34 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT_S = 30
 SECRET_HEADER = "x-telegram-bot-api-secret-token"
 
-HELP = (
-    "Commands:\n"
-    "/bots — list bots\n"
-    "/<bot> status — kill switch, equity, positions\n"
-    "/<bot> positions — open positions with P&L\n"
-    "/<bot> kill — cancel orders and sell everything (asks you to confirm)\n"
-    "/<bot> alive — resume trading\n"
-    "\n"
-    "Bots: " + ", ".join(ops.BOTS)
-)
+# Navigation is two taps: pick a bot, then pick what to do with it. Reply
+# keyboards send their button text verbatim, so every button is itself a
+# valid command and typing stays optional.
+BOTS_KEYBOARD: list[list[str]] = [[f"/{bot}"] for bot in ops.BOTS]
 
-# One row of buttons per bot per op-pair; tapping sends the text verbatim.
-MAIN_KEYBOARD: list[list[str]] = [
-    row
-    for bot in ops.BOTS
-    for row in (
-        [f"/{bot} status", f"/{bot} positions"],
-        [f"/{bot} kill", f"/{bot} alive"],
-    )
-] + [["/bots"]]
+UP = "🟢"
+DOWN = "🔴"
+ON = "✅"
+OFF = "⬜"
+
+
+def bot_keyboard(bot: ops.Bot) -> list[list[str]]:
+    return [
+        [f"/{bot.name} status", f"/{bot.name} positions"],
+        [f"/{bot.name} strategies"],
+        [f"/{bot.name} kill", f"/{bot.name} alive"],
+        ["/bots"],
+    ]
+
+
+def strategies_keyboard(bot: ops.Bot, enabled: list[str]) -> list[list[str]]:
+    """One toggle per strategy: enabled ones turn off, disabled ones turn on."""
+    active = set(enabled)
+    rows = [
+        [f"/{bot.name} {'off' if name in active else 'on'} {name}"]
+        for name in ops.AVAILABLE_STRATEGIES
+    ]
+    return rows + [[f"/{bot.name}", "/bots"]]
 
 
 @dataclass(frozen=True)
@@ -71,7 +83,7 @@ class Command:
 @dataclass(frozen=True)
 class Reply:
     text: str
-    keyboard: list[list[str]] = field(default_factory=lambda: MAIN_KEYBOARD)
+    keyboard: list[list[str]] = field(default_factory=lambda: BOTS_KEYBOARD)
     one_time: bool = False
 
     def reply_markup(self) -> dict:
@@ -98,27 +110,94 @@ def parse_command(text: str) -> Command | None:
 # --- Command handlers ---
 
 
+def _bots_menu() -> Reply:
+    return Reply("Choose a bot:", keyboard=BOTS_KEYBOARD)
+
+
+def _bot_menu(bot: ops.Bot) -> Reply:
+    return Reply(f"{bot.name} — choose an action:", keyboard=bot_keyboard(bot))
+
+
 def _status(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
     s = ops.status(bot)
+    glyph = UP if s["unrealized_pl"] >= 0 else DOWN
     return Reply(
         f"{s['bot']} ({s['trading_mode']})\n"
         f"kill switch: {s['kill_switch']}\n"
+        f"strategies: {', '.join(s['strategies']) or 'none'}\n"
         f"equity: ${s['equity']:,.2f}   cash: ${s['cash']:,.2f}\n"
-        f"open positions: {s['positions']}   unrealized P&L: ${s['unrealized_pl']:+,.2f}"
+        f"{glyph} {s['positions']} position(s), unrealized "
+        f"${s['unrealized_pl']:+,.2f}",
+        keyboard=bot_keyboard(bot),
+    )
+
+
+def _format_position(p: dict) -> str:
+    total, today = p["unrealized_pl"], p["unrealized_intraday_pl"]
+    glyph = UP if total >= 0 else DOWN
+    bought = p.get("bought_at")
+    held = f"  ·  bought {bought:%b %d}" if bought else ""
+    return (
+        f"{glyph} {p['symbol']}  {p['qty']:g} @ ${p['avg_entry_price']:,.2f}"
+        f" → ${p['current_price']:,.2f}{held}\n"
+        f"    today ${today:+,.2f} ({p['unrealized_intraday_plpc'] * 100:+.2f}%)"
+        f"  ·  total ${total:+,.2f} ({p['unrealized_plpc'] * 100:+.2f}%)"
     )
 
 
 def _positions(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
     rows = ops.positions(bot)
     if not rows:
-        return Reply(f"{bot.name}: no open positions")
+        return Reply(f"{bot.name}: no open positions", keyboard=bot_keyboard(bot))
+    today = sum(p["unrealized_intraday_pl"] for p in rows)
+    total = sum(p["unrealized_pl"] for p in rows)
+    header = (
+        f"{bot.name} — {len(rows)} position(s)\n"
+        f"today ${today:+,.2f}  ·  total ${total:+,.2f}\n"
+    )
+    return Reply(
+        header + "\n" + "\n\n".join(_format_position(p) for p in rows),
+        keyboard=bot_keyboard(bot),
+    )
+
+
+def _strategies_reply(bot: ops.Bot, enabled: list[str], note: str = "") -> Reply:
     lines = [
-        f"{p['symbol']:<6} {p['qty']:>6g} @ ${p['avg_entry_price']:,.2f}"
-        f"  → ${p['current_price']:,.2f}  {p['unrealized_pl']:+,.2f}"
-        f" ({p['unrealized_plpc'] * 100:+.1f}%)"
-        for p in rows
+        f"{ON if name in set(enabled) else OFF} {name}"
+        for name in ops.AVAILABLE_STRATEGIES
     ]
-    return Reply(f"{bot.name}: {len(rows)} open position(s)\n" + "\n".join(lines))
+    warning = (
+        "\n\nNo strategies enabled — this bot will not open new positions or "
+        "act on exit signals. Trailing stops still run."
+        if not enabled
+        else ""
+    )
+    return Reply(
+        f"{bot.name} strategies{note}\n\n"
+        + "\n".join(lines)
+        + warning
+        + "\n\nTap to turn one on or off. Applies within a minute, no redeploy.",
+        keyboard=strategies_keyboard(bot, enabled),
+    )
+
+
+def _strategies(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
+    return _strategies_reply(bot, ops.get_strategies(bot))
+
+
+def _set_strategy(bot: ops.Bot, args: tuple[str, ...], enabled: bool) -> Reply:
+    verb = "on" if enabled else "off"
+    if not args:
+        return _strategies_reply(bot, ops.get_strategies(bot))
+    name = args[0]
+    try:
+        updated = ops.toggle_strategy(bot, name, enabled)
+    except ValueError as e:
+        return Reply(
+            f"{e}\n\nAvailable: " + ", ".join(ops.AVAILABLE_STRATEGIES),
+            keyboard=strategies_keyboard(bot, ops.get_strategies(bot)),
+        )
+    return _strategies_reply(bot, updated, note=f" — {name} {verb}")
 
 
 def _kill(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
@@ -127,20 +206,23 @@ def _kill(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
         return Reply(
             f"{bot.name}: this cancels all open orders and sells all "
             f"{s['positions']} position(s) (equity ${s['equity']:,.2f}).\n"
-            f"Tap  /{bot.name} kill confirm  to proceed, or /bots to back out.",
-            keyboard=[[f"/{bot.name} kill confirm"], ["/bots"]],
+            f"Tap  /{bot.name} kill confirm  to proceed, or go back.",
+            keyboard=[[f"/{bot.name} kill confirm"], [f"/{bot.name}", "/bots"]],
             one_time=True,
         )
-    return Reply(f"{bot.name}: {ops.kill(bot)}")
+    return Reply(f"{bot.name}: {ops.kill(bot)}", keyboard=bot_keyboard(bot))
 
 
 def _alive(bot: ops.Bot, args: tuple[str, ...]) -> Reply:
-    return Reply(f"{bot.name}: {ops.alive(bot)}")
+    return Reply(f"{bot.name}: {ops.alive(bot)}", keyboard=bot_keyboard(bot))
 
 
 _HANDLERS = {
     "status": _status,
     "positions": _positions,
+    "strategies": _strategies,
+    "on": lambda bot, args: _set_strategy(bot, args, enabled=True),
+    "off": lambda bot, args: _set_strategy(bot, args, enabled=False),
     "kill": _kill,
     "alive": _alive,
 }
@@ -148,20 +230,25 @@ _HANDLERS = {
 
 def run_command(text: str) -> Reply:
     cmd = parse_command(text)
-    if cmd is None or cmd.op == "help":
-        return Reply(HELP)
+    if cmd is None or not cmd.bot:
+        return _bots_menu()
     bot = ops.resolve_bot(cmd.bot)
     if bot is None:
-        return Reply(f"Unknown bot '/{cmd.bot}'. Bots: " + ", ".join(ops.BOTS))
+        return Reply(f"Unknown bot '/{cmd.bot}'.", keyboard=BOTS_KEYBOARD)
+    if cmd.op == "help":
+        return _bot_menu(bot)
     handler = _HANDLERS.get(cmd.op)
     if handler is None:
-        return Reply(f"Unknown command '{cmd.op}'.\n\n{HELP}")
+        return Reply(
+            f"Unknown command '{cmd.op}' for {bot.name}.",
+            keyboard=bot_keyboard(bot),
+        )
     logger.info("ops command: %s", text)
     try:
         return handler(bot, cmd.args)
     except Exception as e:
         logger.exception("%s %s failed", bot.name, cmd.op)
-        return Reply(f"{bot.name} {cmd.op} failed: {e}")
+        return Reply(f"{bot.name} {cmd.op} failed: {e}", keyboard=bot_keyboard(bot))
 
 
 def handle_update(update: dict, allowed_chat_ids: set[int]) -> tuple[int, Reply] | None:

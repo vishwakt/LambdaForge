@@ -61,12 +61,15 @@ def load_ssm_params(prefix: str | None = None) -> dict:
     """
     global _ssm_cache, _cache_loaded
 
-    if _cache_loaded:
-        logger.debug("Returning cached SSM params (%d keys)", len(_ssm_cache))
-        return _ssm_cache
-
     if prefix is None:
         prefix = get_ssm_prefix()
+
+    if _cache_loaded:
+        # Warm container: refresh the non-secret params so a config change
+        # (strategies, risk limits) reaches a running bot on the next
+        # invocation instead of waiting for a cold start.
+        _refresh_plain_params(prefix)
+        return _ssm_cache
 
     try:
         import boto3
@@ -99,6 +102,38 @@ def load_ssm_params(prefix: str | None = None) -> dict:
     except (ClientError, NoCredentialsError, Exception) as e:
         logger.debug("SSM unavailable, using defaults: %s", e)
         return {}
+
+
+def _refresh_plain_params(prefix: str) -> None:
+    """Re-read String/StringList params into the cache.
+
+    Skips SecureStrings, so the Alpaca credentials keep the values decrypted
+    at cold start and a warm container pays no KMS decrypt per invocation
+    (the reason the cache exists). Everything else — strategies, risk
+    limits, monitor interval — is re-read every time, which is what makes
+    "change a parameter, no redeploy" actually true for a warm Lambda.
+
+    Fails silently: a config refresh must never break a trading run.
+    """
+    try:
+        import boto3
+
+        ssm = boto3.client("ssm")
+        paginator = ssm.get_paginator("get_parameters_by_path")
+        fresh: dict[str, str] = {}
+        for page in paginator.paginate(
+            Path=prefix,
+            Recursive=True,
+            WithDecryption=False,
+        ):
+            for p in page.get("Parameters", []):
+                if p.get("Type") == "SecureString":
+                    continue
+                fresh[p["Name"].removeprefix(prefix)] = p["Value"]
+        if fresh:
+            _ssm_cache.update(fresh)
+    except Exception as e:
+        logger.debug("Live SSM refresh failed, keeping cached values: %s", e)
 
 
 def clear_ssm_cache() -> None:

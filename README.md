@@ -242,14 +242,24 @@ No CLI? Set `/stock-bot/kill-switch` → `kill` directly in the AWS Console. The
 A Telegram bot can operate any stack by name. Every reply carries a button
 keyboard, so after the first `/bots` each command is one tap.
 
+Navigation is two taps: pick a bot, then pick an action.
+
 | Message | Effect |
 |---------|--------|
-| `/bots` | List bots and show the command keyboard |
-| `/stock-bot-2 status` | Kill-switch state, equity, cash, open positions |
-| `/stock-bot-2 positions` | Open positions with unrealized P&L |
+| `/bots` | Choose a bot |
+| `/stock-bot-2` | Choose an action for that bot |
+| `/stock-bot-2 status` | Kill switch, strategies, equity, cash, open positions |
+| `/stock-bot-2 positions` | Each position with entry date, today's P&L and total P&L |
+| `/stock-bot-2 strategies` | Which strategies run, with a toggle for each |
+| `/stock-bot-2 on rsi_macd` | Start running that strategy — live within a minute |
+| `/stock-bot-2 off macd` | Stop running it |
 | `/stock-bot-2 kill` | Shows what would be liquidated and offers a confirm button |
 | `/stock-bot-2 kill confirm` | Invokes that stack's KillSwitchFunction: cancels orders, sells everything, halts |
 | `/stock-bot-2 alive` | Resumes trading |
+
+Strategy changes are written to the bot's `strategies` SSM parameter and picked
+up on its next scheduled run — no redeploy, no restart, and each bot can run a
+different set.
 
 Bot names are the SSM prefixes without slashes: `stock-bot`, `stock-bot-2`,
 `stock-bot-live`. Only chat IDs on the allowlist get a reply; anyone else is
@@ -322,7 +332,7 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-149 tests covering market hours, buy deduplication and fill reconciliation, the Telegram ops bot, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
+175 tests covering market hours, buy deduplication and fill reconciliation, the Telegram ops bot, live SSM reconfiguration, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 

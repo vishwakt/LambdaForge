@@ -144,6 +144,91 @@ class TestKill:
             ops.kill_switch_function_name(ops.Bot("stock-bot"))
 
 
+class TestStrategySelection:
+    def test_reports_the_ssm_list_when_set(self, monkeypatch):
+        _clients(monkeypatch, ssm=_FakeSSM(params={"strategies": "macd, rsi_macd"}))
+        assert ops.get_strategies(ops.Bot("stock-bot-2")) == ["macd", "rsi_macd"]
+
+    def test_falls_back_to_config_json_when_unset(self, monkeypatch):
+        """No parameter means the bot runs the baked-in list — report that,
+        not an empty list, or the display would lie about what is running."""
+        _clients(monkeypatch, ssm=_FakeSSM(params={}))
+        assert ops.get_strategies(ops.Bot("stock-bot")) == ops.default_strategies()
+        assert ops.default_strategies() == ["macd", "bollinger", "zscore"]
+
+    def test_set_writes_csv_in_registry_order(self, monkeypatch):
+        ssm = _FakeSSM()
+        _clients(monkeypatch, ssm=ssm)
+        stored = ops.set_strategies(ops.Bot("stock-bot-2"), ["rsi_macd", "macd"])
+        assert stored == ["macd", "rsi_macd"]
+        assert ssm.put[0]["Name"] == "/stock-bot-2/strategies"
+        assert ssm.put[0]["Value"] == "macd,rsi_macd"
+        assert ssm.put[0]["Type"] == "String"
+
+    def test_set_rejects_unknown_names_without_writing(self, monkeypatch):
+        ssm = _FakeSSM()
+        _clients(monkeypatch, ssm=ssm)
+        with pytest.raises(ValueError, match="nonsense"):
+            ops.set_strategies(ops.Bot("stock-bot-2"), ["macd", "nonsense"])
+        assert ssm.put == []
+
+    def test_set_deduplicates(self, monkeypatch):
+        ssm = _FakeSSM()
+        _clients(monkeypatch, ssm=ssm)
+        assert ops.set_strategies(ops.Bot("stock-bot"), ["macd", "macd"]) == ["macd"]
+
+    def test_toggle_on_keeps_the_others(self, monkeypatch):
+        ssm = _FakeSSM(params={"strategies": "macd,zscore"})
+        _clients(monkeypatch, ssm=ssm)
+        assert ops.toggle_strategy(ops.Bot("stock-bot-2"), "rsi_macd", True) == [
+            "macd",
+            "zscore",
+            "rsi_macd",
+        ]
+
+    def test_toggle_off_removes_only_that_one(self, monkeypatch):
+        ssm = _FakeSSM(params={"strategies": "macd,zscore"})
+        _clients(monkeypatch, ssm=ssm)
+        assert ops.toggle_strategy(ops.Bot("stock-bot-2"), "macd", False) == ["zscore"]
+
+    def test_toggle_off_the_last_one_is_allowed(self, monkeypatch):
+        """An empty list is a legitimate soft pause — the bot stops opening
+        positions but trailing stops keep running."""
+        ssm = _FakeSSM(params={"strategies": "macd"})
+        _clients(monkeypatch, ssm=ssm)
+        assert ops.toggle_strategy(ops.Bot("stock-bot-2"), "macd", False) == []
+        assert ssm.put[0]["Value"] == ""
+
+    def test_toggle_rejects_unknown(self, monkeypatch):
+        _clients(monkeypatch, ssm=_FakeSSM(params={}))
+        with pytest.raises(ValueError, match="unknown strategy: nope"):
+            ops.toggle_strategy(ops.Bot("stock-bot"), "nope", True)
+
+    def test_available_matches_the_deployed_registry(self):
+        from src.strategies import STRATEGIES
+
+        assert set(ops.AVAILABLE_STRATEGIES) == set(STRATEGIES)
+
+
+class TestPositionDetail:
+    def test_entry_dates_attached_and_sorted_by_total_pl(self, monkeypatch):
+        rows = [
+            {"symbol": "A", "unrealized_pl": -5.0},
+            {"symbol": "B", "unrealized_pl": 20.0},
+        ]
+        _clients(monkeypatch, ssm=_FakeSSM(params={"trading_mode": "paper"}))
+        monkeypatch.setattr(ops, "_trading_client", lambda bot, params: "client")
+        monkeypatch.setattr(ops, "get_positions", lambda c: rows)
+        monkeypatch.setattr(
+            ops, "get_last_buy_fills", lambda c, symbols: {"B": "2026-09-05"}
+        )
+
+        result = ops.positions(ops.Bot("stock-bot-2"))
+        assert [r["symbol"] for r in result] == ["B", "A"]
+        assert result[0]["bought_at"] == "2026-09-05"
+        assert result[1]["bought_at"] is None
+
+
 class TestTradingClientFromSsm:
     def test_missing_credentials(self):
         with pytest.raises(RuntimeError, match="/stock-bot-2/"):
