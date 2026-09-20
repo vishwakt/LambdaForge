@@ -48,6 +48,23 @@ _DEAD_ORDER_STATUSES = frozenset(
 FILL_RECONCILE_BATCH = 50
 
 
+def _manages_own_exits(strategy_name: str) -> bool:
+    """True when a strategy declares that it owns its exit rules.
+
+    A strategy with fully specified exits (a fixed RSI target, a holding
+    period) must not also be closed by the engine's ratcheting stop — that
+    is an extra exit rule it never asked for, and on a low-volatility
+    instrument the ATR leg sits within a couple of percent of the
+    high-water mark, so it would fire first almost every time.
+
+    Opting out skips the *ratchet* only. The stop the strategy set is still
+    enforced as a hard floor, so a position is never left unprotected.
+    Unknown or undeclared strategies keep the ratchet, so this changes
+    nothing for the seven built-ins.
+    """
+    return not getattr(STRATEGIES.get(strategy_name), "uses_trailing_stop", True)
+
+
 class TradingEngine:
     """Orchestrates daily scan -> risk check -> execute -> log cycle."""
 
@@ -502,8 +519,38 @@ class TradingEngine:
                 self.trade_log.update_trade_status(trade["id"], status)
             # Anything else is still working at the broker — check again next cycle.
 
+    def _stop_level(self, trade: dict, current_price: float) -> float:
+        """The price at which this trade's stop fires.
+
+        For a strategy that owns its exits the stop stays where the strategy
+        put it: a hard floor, never ratcheted up. For everything else the
+        engine ratchets — the tighter of a percentage and an ATR stop, and
+        never downwards — and persists the new level.
+        """
+        if _manages_own_exits(trade["strategy"]):
+            return trade["stop_loss"]
+
+        entry_price = trade.get("fill_price") or trade["stop_loss"] / 0.95
+        hwm = trade.get("high_water_mark") or entry_price
+        new_hwm = max(current_price, hwm)
+
+        # Percentage-based trailing stop
+        pct_stop = new_hwm * (1 - self.config.risk.trailing_stop_pct)
+
+        # ATR-based trailing stop
+        atr = self._compute_atr(trade["symbol"])
+        atr_stop = (new_hwm - 2 * atr) if atr else 0.0
+
+        # Use the tighter (higher) of the two, and never move the stop down
+        new_trailing = max(pct_stop, atr_stop)
+        current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
+        new_trailing = max(new_trailing, current_trailing)
+
+        self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
+        return new_trailing
+
     def _check_trailing_stops(self, trading_client, data_client):
-        """Check trailing stop-losses using real-time quotes."""
+        """Check stop-losses using real-time quotes."""
         open_trades = self.trade_log.get_open_trades()
 
         if not open_trades:
@@ -528,36 +575,15 @@ class TradingEngine:
                     )
                     continue
                 current_price = quote["bid_price"]
-
-                # --- Trailing stop update ---
-                entry_price = trade.get("fill_price") or trade["stop_loss"] / 0.95
-                hwm = trade.get("high_water_mark") or entry_price
-                new_hwm = max(current_price, hwm)
-
-                # Percentage-based trailing stop
-                pct_stop = new_hwm * (1 - self.config.risk.trailing_stop_pct)
-
-                # ATR-based trailing stop
-                atr = self._compute_atr(trade["symbol"])
-                atr_stop = (new_hwm - 2 * atr) if atr else 0.0
-
-                # Use the tighter (higher) of the two
-                new_trailing = max(pct_stop, atr_stop)
-
-                # Never move the stop down
-                current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
-                new_trailing = max(new_trailing, current_trailing)
-
-                # Persist updated trailing stop
-                self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
+                stop_level = self._stop_level(trade, current_price)
 
                 # --- Check if stop is triggered ---
-                if current_price <= new_trailing:
+                if current_price <= stop_level:
                     logger.warning(
-                        "TRAILING STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
+                        "STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
                         trade["symbol"],
                         current_price,
-                        new_trailing,
+                        stop_level,
                     )
                     pos = pos_map.get(trade["symbol"])
                     if pos and has_open_sell_order(trading_client, trade["symbol"]):
@@ -571,15 +597,15 @@ class TradingEngine:
                             symbol=trade["symbol"],
                             action=Action.SELL,
                             confidence=1.0,
-                            reason=f"Trailing stop triggered at ${current_price:.2f} "
-                            f"(stop: ${new_trailing:.2f})",
+                            reason=f"Stop triggered at ${current_price:.2f} "
+                            f"(stop: ${stop_level:.2f})",
                             entry_price=current_price,
                         )
                         pnl = (current_price - pos["avg_entry_price"]) * int(pos["qty"])
                         self.notifier.notify_stop_triggered(
                             trade["symbol"],
                             current_price,
-                            new_trailing,
+                            stop_level,
                             pnl,
                         )
                         self._execute_exit(
@@ -587,11 +613,10 @@ class TradingEngine:
                         )
                 else:
                     logger.info(
-                        "  %s: $%.2f (trailing stop: $%.2f, HWM: $%.2f) — OK",
+                        "  %s: $%.2f (stop: $%.2f) — OK",
                         trade["symbol"],
                         current_price,
-                        new_trailing,
-                        new_hwm,
+                        stop_level,
                     )
             except Exception as e:
                 logger.error("Stop-loss check failed for %s: %s", trade["symbol"], e)

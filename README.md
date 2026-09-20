@@ -180,7 +180,7 @@ All strategies implement a common interface — they receive historical OHLCV ba
 | **RSI + MACD Confluence** | RSI oversold + MACD bullish cross | 4% below entry | 8% above | Reversal signals |
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
 
-> **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises.
+> **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
 
 Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes ~50 lines of code.
 
