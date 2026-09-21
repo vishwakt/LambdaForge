@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Strategies can own their exits (`uses_trailing_stop = False`)** — the
+  engine ratchets every position's stop to the tighter of a percentage and an
+  ATR stop, without asking the strategy. For a strategy whose exits are fully
+  specified that is an extra exit rule it never asked for, and on a
+  low-volatility instrument the ATR leg sits within a couple of percent of the
+  high-water mark, so it fires first almost every time. Declaring the flag
+  skips the ratchet only: the `stop_loss` the strategy set is still enforced
+  as a hard floor, so a position is never left unprotected. Undeclared and
+  unrecognised strategy names keep the ratchet, so the seven momentum and
+  mean-reversion built-ins are unaffected; `pullback_uptrend` from [#63] is
+  the only strategy that declares it. ([#64])
 - **Pullback in Uptrend strategy (`pullback_uptrend`)** — buy a dip when
   close is above the 50-day SMA and RSI(2) is below 10; exit on RSI(2) above
   60 or a close below the SMA. Evaluated on completed daily bars only, since

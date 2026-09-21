@@ -92,6 +92,7 @@ MonitorStopsFunction
         ├── _reconcile_buy_fills() — record fill price/qty of pending buys (≤50 lookups/cycle)
         ├── _check_trailing_stops() — real-time quotes via Alpaca
         │     ├── Ratchet stop up to max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR); never lowered
+        │     │   (skipped for strategies declaring uses_trailing_stop = False; their stop_loss stands as a floor)
         │     └── Sell if price <= trailing_stop
         ├── _check_exit_signals() — strategy SELL on open positions
         └── _scan_for_entries() — opportunistic buys (dedup check)
@@ -136,6 +137,15 @@ A `Signal` carries:
 | **Relative Strength vs SPY** | `relative_strength.py` | Buys stocks outperforming SPY on a rolling basis |
 
 All strategies set `stop_loss` and `take_profit` on BUY signals — fixed 3–5% / 6–10% for the momentum strategies, band- and σ-based levels for Bollinger and Z-Score. Trailing stops are managed centrally by the scheduler (hybrid: the tighter of 5% below the high-water mark or 2×ATR, never lowered), not individual strategies.
+
+A strategy whose exit rules are fully specified can opt out of the ratchet by
+declaring `uses_trailing_stop = False`. The engine then leaves its
+`stop_loss` where the strategy put it, as a hard floor, and never raises it.
+Without the opt-out the ratchet is an extra exit rule the strategy never
+asked for: on a low-volatility instrument the ATR leg sits within a couple of
+percent of the high-water mark, so it closes the position before the
+strategy's own rules can. Undeclared and unrecognised strategies keep the
+ratchet, so all seven built-ins are unaffected.
 
 ---
 
