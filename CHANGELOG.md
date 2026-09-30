@@ -116,6 +116,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stops no longer fire on a stale bid, and don't re-buy the same day** —
+  stops were checked against the best bid on the free IEX feed, which is
+  often far below the market: AXTI's stop fired on a $71.00 bid while it
+  traded at $74.92, and the unchanged daily signal bought it straight back,
+  130 times on 2026-09-24. Stops now use the last trade price (the quote
+  midpoint when there is no fresh trade) and fire only when two consecutive
+  runs agree, unless the price has gapped more than 5% through the stop.
+  After any exit the symbol can't be bought again that New York trading day.
+  ([#72])
+- **The position cap counts buys that haven't filled, and buys never use
+  margin** — the cap counted only filled positions, so at the open every
+  check in a burst saw the same count: 27 symbols bought in one minute,
+  peaks of 35 and 48 positions against a cap of 12. It now counts positions,
+  open buy orders and buys placed earlier in the run, and places no buys if
+  open orders can't be read. Sizing had no cash floor, and live-config ran
+  to -$36K cash; a buy is now refused at zero cash, and cash committed
+  earlier in the run is subtracted first. `scripts/set_margin_multiplier.py`
+  sets Alpaca's `max_margin_multiplier`, an API-only account setting. ([#72])
 - **SSM config changes now reach a running bot** — `load_ssm_params` cached
   every parameter at module level and nothing ever cleared it, so a warm
   Lambda container kept whatever configuration it started with. Since the
@@ -165,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#62]: https://github.com/vishwakt/LambdaForge/pull/62
 [#63]: https://github.com/vishwakt/LambdaForge/pull/63
 [#64]: https://github.com/vishwakt/LambdaForge/pull/64
+[#72]: https://github.com/vishwakt/LambdaForge/pull/72
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
