@@ -254,3 +254,41 @@ class TestTradingClientFromSsm:
             "trading_mode": "paper",
             "x": "1",
         }
+
+
+class TestMargin:
+    class _Client:
+        def __init__(self, multiplier="2"):
+            from types import SimpleNamespace
+
+            self.config = SimpleNamespace(max_margin_multiplier=multiplier)
+            self.account = SimpleNamespace(
+                multiplier="2", cash="-35996.00", buying_power="47566.00"
+            )
+            self.patched = []
+
+        def get_account_configurations(self):
+            return self.config
+
+        def get_account(self):
+            return self.account
+
+        def set_account_configurations(self, config):
+            self.patched.append(config.max_margin_multiplier)
+            return config
+
+    @pytest.fixture
+    def client(self, monkeypatch):
+        c = self._Client()
+        monkeypatch.setattr(ops, "_stack_params", lambda bot: {})
+        monkeypatch.setattr(ops, "_trading_client", lambda bot, params: c)
+        return c
+
+    def test_reads_the_cap_and_current_use(self, client):
+        m = ops.margin(ops.Bot("stock-bot-live"))
+        assert m["max_margin_multiplier"] == "2"
+        assert m["cash"] == -35996.0
+
+    def test_sets_cash_only(self, client):
+        assert ops.set_max_margin_multiplier(ops.Bot("stock-bot-2")) == "1"
+        assert client.patched == ["1"]

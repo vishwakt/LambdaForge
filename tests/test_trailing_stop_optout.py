@@ -148,6 +148,14 @@ class TestThroughTheMonitor:
         exits = []
         monkeypatch.setattr(
             scheduler_mod,
+            "get_latest_trade",
+            lambda client, symbol: {
+                "price": price,
+                "timestamp": datetime.now(timezone.utc),
+            },
+        )
+        monkeypatch.setattr(
+            scheduler_mod,
             "get_latest_quote",
             lambda client, symbol: {
                 "bid_price": price,
@@ -189,6 +197,10 @@ class TestThroughTheMonitor:
         log_buy(engine, opted_out, stop_loss=80.0, fill_price=100.0)
         exits = self._wire(engine, monkeypatch, price=79.0)
 
+        # $1 through the stop is within the gap threshold, so the first run
+        # only marks the breach and the second confirms it.
+        engine._check_trailing_stops(trading_client=None, data_client=None)
+        assert exits == []
         engine._check_trailing_stops(trading_client=None, data_client=None)
 
         assert len(exits) == 1
@@ -201,6 +213,9 @@ class TestThroughTheMonitor:
         log_buy(engine, "macd", stop_loss=80.0, fill_price=100.0)
         exits = self._wire(engine, monkeypatch, price=96.0)
 
+        # The ATR stop is exactly $96, so this is a breach, not a gap:
+        # the second run confirms it.
+        engine._check_trailing_stops(trading_client=None, data_client=None)
         engine._check_trailing_stops(trading_client=None, data_client=None)
 
         assert len(exits) == 1
