@@ -807,7 +807,7 @@ def get_notifier(
       "console+sns"   -> MultiNotifier([ConsoleNotifier, SNSNotifier])
 
     notify_frequency controls when batched emails are sent:
-      "realtime" — send on every flush (every 2-min cycle)
+      "realtime" — send on every flush (every monitor cycle, default 1 min)
       "hourly"   — suppress; hourly digest Lambda reads from DB
       "daily"    — suppress; only daily summary emails sent
     """

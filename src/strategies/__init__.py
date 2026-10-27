@@ -5,6 +5,7 @@ from src.strategies.bollinger import BollingerSqueezeStrategy
 from src.strategies.ema_crossover import EMACrossoverStrategy
 from src.strategies.macd import MACDStrategy
 from src.strategies.mean_reversion import MeanReversionStrategy
+from src.strategies.pullback_uptrend import PullbackUptrendStrategy
 from src.strategies.relative_strength import RelativeStrengthStrategy
 from src.strategies.rsi_confluence import RSIConfluenceStrategy
 from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
@@ -17,6 +18,7 @@ STRATEGIES = {
     "ema_crossover": EMACrossoverStrategy,
     "rsi_macd": RSIMACDConfluenceStrategy,
     "relative_strength": RelativeStrengthStrategy,
+    "pullback_uptrend": PullbackUptrendStrategy,
 }
 
 __all__ = [
@@ -30,5 +32,6 @@ __all__ = [
     "EMACrossoverStrategy",
     "RSIMACDConfluenceStrategy",
     "RelativeStrengthStrategy",
+    "PullbackUptrendStrategy",
     "STRATEGIES",
 ]

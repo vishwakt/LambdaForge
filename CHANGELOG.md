@@ -9,7 +9,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(nothing yet — changes after v0.1.0 land here)*
+- **Strategies can own their exits (`uses_trailing_stop = False`)** — the
+  engine ratchets every position's stop to the tighter of a percentage and an
+  ATR stop, without asking the strategy. For a strategy whose exits are fully
+  specified that is an extra exit rule it never asked for, and on a
+  low-volatility instrument the ATR leg sits within a couple of percent of the
+  high-water mark, so it fires first almost every time. Declaring the flag
+  skips the ratchet only: the `stop_loss` the strategy set is still enforced
+  as a hard floor, so a position is never left unprotected. Undeclared and
+  unrecognised strategy names keep the ratchet, so the seven momentum and
+  mean-reversion built-ins are unaffected; `pullback_uptrend` from [#63] is
+  the only strategy that declares it. ([#64])
+- **Pullback in Uptrend strategy (`pullback_uptrend`)** — buy a dip when
+  close is above the 50-day SMA and RSI(2) is below 10; exit on RSI(2) above
+  60 or a close below the SMA. Evaluated on completed daily bars only, since
+  the monitor scans every minute and a partial bar's RSI keeps moving.
+  Registered but enabled nowhere, so it changes no running bot.
+  A third exit, a 3-trading-day holding cap, was specified and then dropped
+  on measurement: it never fired at all on SPY over 2021-2025, and across
+  three random 25-symbol cohorts from the watchlist, 1,650 trades, it lowered
+  the win rate in all three while leaving profit inside the noise. It was
+  also the only rule that could not be expressed through the `Strategy`
+  interface, which never sees the entry date. The strategy does rely on the
+  `uses_trailing_stop` opt-out from [#64], without which the engine's ratchet
+  would close positions before either remaining rule fires. See
+  [docs/PULLBACK-UPTREND.md](docs/PULLBACK-UPTREND.md). ([#63])
+- **Backtest harness (`tools/backtest.py`)** — daily-bar simulator for any
+  registered strategy, outside the Lambda image. Signals from the close of a
+  completed bar fill at the *next* open, never at the signal bar's close, so a
+  mean-reversion entry is not credited with the down-close that triggered it.
+  Reports total return, max drawdown, win rate, trade count, average return
+  per trade, average holding period, per-symbol results and the equity curve.
+  Slippage, dividends and interest on idle cash are not modelled. This closes
+  the "no backtest framework" gap listed under Known limitations in 0.1.0.
+  ([#63])
+
+- **ECR lifecycle policy and cost allocation tags** — container images had no
+  expiry, so every deploy left two behind permanently: the previous `:latest`,
+  orphaned by the new push, and SAM's own tagged image. Across the three
+  repositories that had reached 152 images and ~37 GB nominal, which was the
+  single largest line on the AWS bill. `ecr-lifecycle-policy.json` now expires
+  untagged images after 3 days (matching the `trades.db` version window) and
+  caps each repository at the 10 most recent images, roughly the last five
+  deploys. Applied idempotently by all three deploy workflows.
+  Separately, the workflows now pass stack-level `--tags` to `sam deploy`, which
+  CloudFormation propagates to every taggable resource in the stack, and tag the
+  ECR repositories explicitly since they are created outside the stack and stack
+  tags never reach them. Activating `Project` and `Environment` as cost
+  allocation tags in the billing console then gives a real per-stack cost
+  breakdown. ([#62])
+- **Change a bot's strategies from Telegram** — `/<bot> strategies` shows
+  every strategy with a toggle; `/<bot> on <name>` and `/<bot> off <name>`
+  rewrite that bot's `strategies` SSM parameter. Each stack can run a
+  different set, and a change takes effect on the next scheduled run with no
+  redeploy and no restart. Turning them all off is a soft pause: no new
+  entries and no signal exits, while trailing stops keep running. ([#61])
+- **Two-tap Telegram navigation** — the first screen picks a bot, the second
+  picks an action, and every reply carries the keyboard for wherever you are,
+  so more bots and more actions can be added without the menu growing
+  unusable. ([#61])
+- **Richer position detail** — `/<bot> positions` now shows each holding's
+  entry date, today's P&L and total P&L, in dollars and percent, marked 🟢 or
+  🔴, sorted by total P&L, with portfolio totals on top. ([#61])
+
+- **Kill switch and status from Telegram** — `python -m src.telegram_bot`
+  long-polls a Telegram bot and answers `/<bot> status|positions|kill|alive`
+  for `stock-bot`, `stock-bot-2`, and `stock-bot-live`. `kill` requires a
+  `confirm` reply and invokes the target stack's own KillSwitchFunction, so
+  liquidation runs with that stack's credentials. Only allowlisted chat IDs
+  get a reply. The bot-scoped actions live in `src/ops.py`, shared by any
+  future adapter (webhook Lambda, MCP, REST). ([#59])
+- **Telegram bot always on, one tap per command** — the paper stack now
+  deploys `TelegramOpsFunction` behind a Lambda Function URL (no API
+  Gateway). Telegram's `X-Telegram-Bot-Api-Secret-Token` header is verified
+  against `/stock-bot-ops/telegram-webhook-secret`; token and chat allowlist
+  live under the same prefix. Every reply carries a button keyboard covering
+  all bots and commands, and the `kill` prompt offers a single confirm
+  button. The deployer policy template gains the four `lambda:*FunctionUrlConfig`
+  actions. ([#60])
+- **S3 lifecycle policy on the `trades.db` buckets** — noncurrent versions expire
+  a few days after supersession (30 days in [#40], tightened to 3 in [#45]; the
+  5 newest are always retained as rollback insurance); incomplete multipart
+  uploads abort after 7 days. Bounds the previously unbounded version growth
+  from every handler run re-uploading the DB. ([#40], [#45])
+- **Audit archive to S3 Glacier Deep Archive** — the first end-of-day run of
+  each period exports the full `trades`, `daily_snapshots`, and
+  `risk_rejections` tables (write-once, idempotent). Monthly
+  `archive/YYYY-MM.json.gz` in [#42]; weekly `archive/YYYY-Www.json.gz` since
+  [#45]. A prefix-scoped lifecycle rule transitions archives straight to Deep
+  Archive and expires them after 7 years. ([#42], [#45])
+- **Deployer IAM read access for lifecycle verification** — the deployer policy
+  template now includes `s3:GetLifecycleConfiguration` and
+  `s3:ListBucketVersions` so the CLI user can verify lifecycle state and watch
+  version cleanup without admin credentials. ([#43])
+
+### Changed
+
+- **`trades.db` version retention tightened from 30 to 3 days; audit archive
+  cadence monthly → weekly** — measured baseline before cleanup was ~225 GB
+  across the three buckets (the monitor uploads a 2–12 MB DB up to once a
+  minute). The DB is cumulative, so the shorter rollback window plus weekly
+  Glacier exports loses nothing; steady state drops to ~7.5 GB. ([#45])
+- **CI: paper and Bot 2 deploy workflows skip on docs-only changes** — pushes
+  touching only documentation no longer trigger full Docker build/deploy runs.
+  ([#37])
+
+### Fixed
+
+- **Stops no longer fire on a stale bid, and don't re-buy the same day** —
+  stops were checked against the best bid on the free IEX feed, which is
+  often far below the market: AXTI's stop fired on a $71.00 bid while it
+  traded at $74.92, and the unchanged daily signal bought it straight back,
+  130 times on 2026-09-24. Stops now use the last trade price (the quote
+  midpoint when there is no fresh trade) and fire only when two consecutive
+  runs agree, unless the price has gapped more than 5% through the stop.
+  After any exit the symbol can't be bought again that New York trading day.
+  ([#72])
+- **The position cap counts buys that haven't filled, and buys never use
+  margin** — the cap counted only filled positions, so at the open every
+  check in a burst saw the same count: 27 symbols bought in one minute,
+  peaks of 35 and 48 positions against a cap of 12. It now counts positions,
+  open buy orders and buys placed earlier in the run, and places no buys if
+  open orders can't be read. Sizing had no cash floor, and live-config ran
+  to -$36K cash; a buy is now refused at zero cash, and cash committed
+  earlier in the run is subtracted first. `scripts/set_margin_multiplier.py`
+  sets Alpaca's `max_margin_multiplier`, an API-only account setting. ([#72])
+- **SSM config changes now reach a running bot** — `load_ssm_params` cached
+  every parameter at module level and nothing ever cleared it, so a warm
+  Lambda container kept whatever configuration it started with. Since the
+  monitor runs every minute, containers stay warm for hours, and an edited
+  risk limit or strategy list could sit unread that whole time — the
+  "zero-redeploy config" in the README was only true on a cold start. Each
+  invocation now re-reads the `String` parameters. `SecureString`
+  credentials stay cached, so the refresh adds no KMS decrypts and no cost.
+  ([#61])
+- **Buy fills are now reconciled with the broker** — a market buy was logged
+  as `submitted` when Alpaca accepted it and nothing ever looked up the fill.
+  Every buy therefore stayed `submitted` forever: hourly digests printed
+  `@ $0.00`, the trailing stop guessed the entry price from the stop level,
+  and the buy-dedup check (which treats `submitted` as "still pending")
+  blocked that symbol+strategy from ever being bought again — Bot 2 had 491
+  buys across exactly 491 distinct symbol+strategy pairs. Each monitor cycle
+  now looks up pending buys (bounded to 50 per cycle so the backlog drains
+  under the rate limit) and records the fill price and filled quantity, or
+  retires orders that were canceled, expired, or rejected. ([#58])
+- **Holiday-aware market guard, idempotent exits, stale-quote guard** — on
+  Labor Day 2026 the weekday/time heuristic let Bot 2 run, act on Friday's
+  quotes, queue seven holiday sell orders (Alpaca accepts DAY orders while
+  closed), and then re-alert and re-submit every cycle. Handlers now ask
+  Alpaca's market clock (holidays, half-days) with the heuristic as fallback;
+  the stop-loss check skips quotes older than 15 minutes; and an exit is
+  skipped when a sell order for that symbol is already open. ([#52])
+- **Per-stack strategy selection via SSM actually works** — `/stock-bot-2/strategies`
+  had been set for months, but `apply_ssm_params` had no mapping for it and the
+  experimental stack silently ran the baked-in `config.json` set. The parameter
+  is now honored as a comma-separated list. ([#47])
+- **Schedules no longer drift with daylight-saving time** — classic EventBridge
+  rules evaluate cron in UTC, so the 09:30 ET scan had been firing at 10:30 EDT
+  all summer. The four cron triggers moved to EventBridge Scheduler with
+  `ScheduleExpressionTimezone: America/New_York`. ([#48])
+
+[#37]: https://github.com/vishwakt/LambdaForge/pull/37
+[#40]: https://github.com/vishwakt/LambdaForge/pull/40
+[#42]: https://github.com/vishwakt/LambdaForge/pull/42
+[#43]: https://github.com/vishwakt/LambdaForge/pull/43
+[#45]: https://github.com/vishwakt/LambdaForge/pull/45
+[#47]: https://github.com/vishwakt/LambdaForge/pull/47
+[#48]: https://github.com/vishwakt/LambdaForge/pull/48
+[#52]: https://github.com/vishwakt/LambdaForge/pull/52
+[#59]: https://github.com/vishwakt/LambdaForge/pull/59
+[#60]: https://github.com/vishwakt/LambdaForge/pull/60
+[#61]: https://github.com/vishwakt/LambdaForge/pull/61
+[#62]: https://github.com/vishwakt/LambdaForge/pull/62
+[#63]: https://github.com/vishwakt/LambdaForge/pull/63
+[#64]: https://github.com/vishwakt/LambdaForge/pull/64
+[#72]: https://github.com/vishwakt/LambdaForge/pull/72
+[#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
 
@@ -71,8 +246,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 - **Kill switch:** `aws ssm put-parameter --name /stock-bot/kill-switch --value kill`
   halts all new orders within ~60 seconds. Checked on every Lambda invocation
   (bypasses the SSM cache by design).
-- **Market hours guard:** Zero API calls when the market is closed, including
-  partial-day holidays.
+- **Market hours guard:** Skips runs outside 09:30–16:00 ET on weekdays. (Holiday
+  awareness arrived later — see the Fixed entry for [#52] under Unreleased.)
 - **Buy deduplication:** Prevents double-buys from overlapping Lambda invocations.
 - **Rate-limit backoff:** Automatic retry with exponential backoff on Alpaca 429s.
 
@@ -81,7 +256,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 - **Deployment:** AWS SAM (CloudFormation under the hood). `sam deploy --guided`
   gets you running in ~10 minutes on a fresh AWS account.
 - **Observability:** All decisions logged to CloudWatch with timestamps and
-  reasoning. Log retention configurable via template parameter.
+  reasoning. Log retention is set to 180 days on all log groups (applied via
+  the AWS CLI; not managed by the template).
 - **Persistence:** SQLite trade log synced to/from S3 on every invocation. Versioned,
   encrypted at rest (SSE-S3).
 - **CI/CD:** GitHub Actions pipeline with lint (ruff), test (pytest on Python
@@ -93,7 +269,7 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 
 - [README](README.md) — quick-start, cost breakdown, architecture diagram
 - [ARCHITECTURE.md](ARCHITECTURE.md) — deep-dive on scheduling, risk flow,
-  SSM hierarchy, and the going-live checklist
+  and SSM hierarchy
 - [CONTRIBUTING.md](CONTRIBUTING.md) — including a full guide for adding new
   trading strategies
 - [.github/SECURITY.md](.github/SECURITY.md) — vulnerability reporting + operator
@@ -101,8 +277,8 @@ keeps KMS decrypt calls at ~1 per Lambda cold start.
 
 ### Tested on
 
-- **Paper trading:** ~60 days on the author's Alpaca paper account, ~200 symbol
-  watchlist, all 5 strategies enabled.
+- **Paper trading:** ~60 days on the author's Alpaca paper account, 218-symbol
+  watchlist, 3 of the 7 built-in strategies enabled (MACD, Bollinger, Z-Score).
 - **Python versions:** 3.9 (Lambda prod), 3.11, 3.12 (via CI matrix).
 - **Region:** `us-east-1`. Other regions should work — configurable via
   `samconfig.toml` — but untested.

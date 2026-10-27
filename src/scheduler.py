@@ -7,18 +7,24 @@ import time
 from datetime import datetime
 
 import schedule
+from alpaca.common.exceptions import APIError
 
 from src.client import (
     get_account_info,
     get_data_client,
     get_latest_quote,
+    get_latest_trade,
+    get_open_buy_symbols,
+    get_order,
     get_positions,
     get_rate_limit_hits,
     get_trading_client,
+    has_open_sell_order,
     place_market_order,
 )
 from src.config import AppConfig, load_config
 from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
+from src.market_hours import is_quote_fresh
 from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
 from src.strategies import STRATEGIES
@@ -26,6 +32,43 @@ from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
 
 logger = logging.getLogger("stock-trader")
+
+# Alpaca order statuses after which no further fills can arrive.
+_DEAD_ORDER_STATUSES = frozenset(
+    {
+        "canceled",
+        "expired",
+        "rejected",
+        "replaced",
+        "done_for_day",
+        "stopped",
+        "suspended",
+    }
+)
+# A stop breached by less than this fraction waits for the next run to
+# confirm it; a price further through the stop than this sells at once.
+STOP_GAP_PCT = 0.05
+
+# Pending buys looked up per monitor cycle. Fills normally land within one
+# cycle, so this only matters for draining a backlog under the 200 req/min cap.
+FILL_RECONCILE_BATCH = 50
+
+
+def _manages_own_exits(strategy_name: str) -> bool:
+    """True when a strategy declares that it owns its exit rules.
+
+    A strategy with fully specified exits (a fixed RSI target, a holding
+    period) must not also be closed by the engine's ratcheting stop — that
+    is an extra exit rule it never asked for, and on a low-volatility
+    instrument the ATR leg sits within a couple of percent of the
+    high-water mark, so it would fire first almost every time.
+
+    Opting out skips the *ratchet* only. The stop the strategy set is still
+    enforced as a hard floor, so a position is never left unprotected.
+    Unknown or undeclared strategies keep the ratchet, so this changes
+    nothing for the seven built-ins.
+    """
+    return not getattr(STRATEGIES.get(strategy_name), "uses_trailing_stop", True)
 
 
 class TradingEngine:
@@ -73,7 +116,7 @@ class TradingEngine:
         self._check_exit_signals(trading_client, open_positions)
 
         # Phase 2: Scan for new entry signals
-        self._scan_for_entries(trading_client, account_info, open_positions)
+        self._scan_for_entries(trading_client)
 
         # Daily summary notification
         account_info = get_account_info(trading_client)
@@ -156,7 +199,7 @@ class TradingEngine:
                     self._execute_exit(trading_client, pos, signal, strat_name)
                     break
 
-    def _scan_for_entries(self, trading_client, account_info, open_positions):
+    def _scan_for_entries(self, trading_client):
         """Scan watchlist for new BUY signals."""
         symbols = self.config.scheduler.symbols
         # Ensure SPY is fetched for relative_strength strategy
@@ -172,6 +215,18 @@ class TradingEngine:
             return
 
         spy_bars = all_bars.get("SPY")
+
+        # One snapshot per run, then track what this run commits. Re-reading
+        # positions per signal doesn't help: an order that hasn't filled is
+        # not a position, so a burst of buys all saw the same count.
+        try:
+            account_info = get_account_info(trading_client)
+            open_positions = get_positions(trading_client)
+            pending = set(get_open_buy_symbols(trading_client))
+        except Exception as e:
+            logger.error("Can't see open orders, skipping entries this run: %s", e)
+            return
+        committed_cash = 0.0
 
         for symbol in symbols:
             bars = all_bars.get(symbol)
@@ -208,10 +263,12 @@ class TradingEngine:
                     signal.reason,
                 )
 
-                account_info = get_account_info(trading_client)
-                open_positions = get_positions(trading_client)
-
-                result = self.risk_manager.check(signal, account_info, open_positions)
+                result = self.risk_manager.check(
+                    signal,
+                    {**account_info, "cash": account_info["cash"] - committed_cash},
+                    open_positions,
+                    pending_buy_symbols=pending,
+                )
 
                 if result.verdict == RiskVerdict.REJECTED:
                     self.trade_log.log_risk_rejection(
@@ -229,15 +286,17 @@ class TradingEngine:
                     )
                     continue
 
-                self._execute_entry(
+                if self._execute_entry(
                     trading_client, signal, result, strat_name, bars=bars
-                )
+                ):
+                    pending.add(symbol)
+                    committed_cash += result.approved_qty * (signal.entry_price or 0)
                 break
 
     def _execute_entry(
         self, trading_client, signal, risk_result, strategy_name, bars=None
-    ):
-        """Place a buy order and log it."""
+    ) -> bool:
+        """Place a buy order and log it. True if the order was placed."""
         try:
             order = place_market_order(
                 trading_client,
@@ -296,8 +355,10 @@ class TradingEngine:
                 reason=signal.reason,
                 all_strategy_signals=all_strategy_signals,
             )
+            return True
         except Exception as e:
             logger.error("ORDER FAILED: BUY %s: %s", signal.symbol, e)
+            return False
 
     def _execute_exit(self, trading_client, position, signal, strategy_name):
         """Place a sell order for an existing position.
@@ -306,6 +367,11 @@ class TradingEngine:
         symbol, logging separate sell records per entry for accurate P&L.
         """
         qty = int(position["qty"])
+        if has_open_sell_order(trading_client, signal.symbol):
+            logger.info(
+                "DEDUP: sell order already open for %s — skipping exit", signal.symbol
+            )
+            return
         try:
             order = place_market_order(trading_client, signal.symbol, qty, "sell")
 
@@ -387,15 +453,17 @@ class TradingEngine:
     def monitor_stops(self):
         """Full monitoring cycle: stop-losses, strategy exits, and new entries.
 
-        Runs every 2 minutes (configurable). Checks:
+        Runs every monitor_interval_min minutes (default 1). Checks:
         1. Trailing stop-losses on open positions (real-time quotes)
         2. Strategy-based exit signals on open positions (batched bars)
         3. New entry signals across the full watchlist (batched bars)
         """
         trading_client = get_trading_client(paper=self.paper)
         data_client = get_data_client(paper=self.paper)
-        account_info = get_account_info(trading_client)
         open_positions = get_positions(trading_client)
+
+        # Phase 0: Learn what the broker actually filled since last cycle
+        self._reconcile_buy_fills(trading_client)
 
         # Phase 1: Check trailing stop-losses (real-time quotes)
         self._check_trailing_stops(trading_client, data_client)
@@ -405,15 +473,105 @@ class TradingEngine:
         self._check_exit_signals(trading_client, open_positions)
 
         # Phase 3: Scan for new entry signals (batched bars)
-        account_info = get_account_info(trading_client)
-        open_positions = get_positions(trading_client)
-        self._scan_for_entries(trading_client, account_info, open_positions)
+        self._scan_for_entries(trading_client)
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
 
+    def _reconcile_buy_fills(self, trading_client):
+        """Apply the broker's order state to buys we still have as 'submitted'.
+
+        A market buy is logged as 'submitted' when Alpaca accepts it; the fill
+        lands seconds later. Until it is recorded here the trade has no
+        fill_price (digests show "@ $0.00", the trailing stop guesses the
+        entry) and has_pending_buy() blocks that symbol+strategy from ever
+        being bought again. One lookup per pending buy, bounded per cycle so
+        a backlog drains without tripping Alpaca's rate limit.
+        """
+        for trade in self.trade_log.get_unreconciled_buys(FILL_RECONCILE_BATCH):
+            symbol, order_id = trade["symbol"], trade["order_id"]
+            try:
+                order = get_order(trading_client, order_id)
+            except APIError as e:
+                if e.status_code == 404:
+                    # Broker has no such order (e.g. DB from another account):
+                    # retire it so it neither blocks nor is retried every cycle.
+                    logger.warning(
+                        "BUY %s order %s not found at broker", symbol, order_id
+                    )
+                    self.trade_log.update_trade_status(trade["id"], "unknown")
+                else:
+                    logger.warning(
+                        "Fill check failed for %s (%s): %s", symbol, order_id, e
+                    )
+                continue
+            except Exception as e:
+                logger.warning("Fill check failed for %s (%s): %s", symbol, order_id, e)
+                continue
+
+            status = order["status"]
+            filled_qty = float(order["filled_qty"] or 0)
+            if status == "filled" or (
+                status in _DEAD_ORDER_STATUSES and filled_qty > 0
+            ):
+                fill_price = float(order["filled_avg_price"] or 0)
+                self.trade_log.mark_buy_filled(trade["id"], fill_price, filled_qty)
+                if filled_qty < float(trade["qty"]):
+                    logger.warning(
+                        "PARTIAL FILL: BUY %s %g of %g @ $%.2f (%s)",
+                        symbol,
+                        filled_qty,
+                        trade["qty"],
+                        fill_price,
+                        status,
+                    )
+                else:
+                    logger.info(
+                        "FILLED: BUY %s x%g @ $%.2f [%s]",
+                        symbol,
+                        filled_qty,
+                        fill_price,
+                        trade["strategy"],
+                    )
+            elif status in _DEAD_ORDER_STATUSES:
+                logger.warning(
+                    "BUY %s order %s %s with no fill", symbol, order_id, status
+                )
+                self.trade_log.update_trade_status(trade["id"], status)
+            # Anything else is still working at the broker — check again next cycle.
+
+    def _stop_level(self, trade: dict, current_price: float) -> float:
+        """The price at which this trade's stop fires.
+
+        For a strategy that owns its exits the stop stays where the strategy
+        put it: a hard floor, never ratcheted up. For everything else the
+        engine ratchets — the tighter of a percentage and an ATR stop, and
+        never downwards — and persists the new level.
+        """
+        if _manages_own_exits(trade["strategy"]):
+            return trade["stop_loss"]
+
+        entry_price = trade.get("fill_price") or trade["stop_loss"] / 0.95
+        hwm = trade.get("high_water_mark") or entry_price
+        new_hwm = max(current_price, hwm)
+
+        # Percentage-based trailing stop
+        pct_stop = new_hwm * (1 - self.config.risk.trailing_stop_pct)
+
+        # ATR-based trailing stop
+        atr = self._compute_atr(trade["symbol"])
+        atr_stop = (new_hwm - 2 * atr) if atr else 0.0
+
+        # Use the tighter (higher) of the two, and never move the stop down
+        new_trailing = max(pct_stop, atr_stop)
+        current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
+        new_trailing = max(new_trailing, current_trailing)
+
+        self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
+        return new_trailing
+
     def _check_trailing_stops(self, trading_client, data_client):
-        """Check trailing stop-losses using real-time quotes."""
+        """Check stop-losses using real-time quotes."""
         open_trades = self.trade_log.get_open_trades()
 
         if not open_trades:
@@ -428,69 +586,92 @@ class TradingEngine:
                 continue
 
             try:
-                quote = get_latest_quote(data_client, trade["symbol"])
-                current_price = quote["bid_price"]
-
-                # --- Trailing stop update ---
-                entry_price = trade.get("fill_price") or trade["stop_loss"] / 0.95
-                hwm = trade.get("high_water_mark") or entry_price
-                new_hwm = max(current_price, hwm)
-
-                # Percentage-based trailing stop
-                pct_stop = new_hwm * (1 - self.config.risk.trailing_stop_pct)
-
-                # ATR-based trailing stop
-                atr = self._compute_atr(trade["symbol"])
-                atr_stop = (new_hwm - 2 * atr) if atr else 0.0
-
-                # Use the tighter (higher) of the two
-                new_trailing = max(pct_stop, atr_stop)
-
-                # Never move the stop down
-                current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
-                new_trailing = max(new_trailing, current_trailing)
-
-                # Persist updated trailing stop
-                self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
+                current_price = self._stop_check_price(data_client, trade["symbol"])
+                if current_price is None:
+                    continue
+                stop_level = self._stop_level(trade, current_price)
 
                 # --- Check if stop is triggered ---
-                if current_price <= new_trailing:
+                if current_price <= stop_level:
+                    gapped = current_price <= stop_level * (1 - STOP_GAP_PCT)
+                    if not gapped and not trade.get("stop_breached_at"):
+                        # One print through the stop is often noise on a thin
+                        # feed. Sell only if the next run still agrees.
+                        self.trade_log.mark_stop_breach(trade["id"])
+                        logger.warning(
+                            "STOP BREACHED: %s at $%.2f (stop: $%.2f) — "
+                            "selling if the next run confirms",
+                            trade["symbol"],
+                            current_price,
+                            stop_level,
+                        )
+                        continue
                     logger.warning(
-                        "TRAILING STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
+                        "STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
                         trade["symbol"],
                         current_price,
-                        new_trailing,
+                        stop_level,
                     )
                     pos = pos_map.get(trade["symbol"])
-                    if pos:
+                    if pos and has_open_sell_order(trading_client, trade["symbol"]):
+                        # Already exiting — don't re-alert or re-submit every cycle
+                        logger.info(
+                            "DEDUP: sell order already open for %s — skipping",
+                            trade["symbol"],
+                        )
+                    elif pos:
                         exit_signal = Signal(
                             symbol=trade["symbol"],
                             action=Action.SELL,
                             confidence=1.0,
-                            reason=f"Trailing stop triggered at ${current_price:.2f} "
-                            f"(stop: ${new_trailing:.2f})",
+                            reason=f"Stop triggered at ${current_price:.2f} "
+                            f"(stop: ${stop_level:.2f})",
                             entry_price=current_price,
                         )
                         pnl = (current_price - pos["avg_entry_price"]) * int(pos["qty"])
                         self.notifier.notify_stop_triggered(
                             trade["symbol"],
                             current_price,
-                            new_trailing,
+                            stop_level,
                             pnl,
                         )
                         self._execute_exit(
                             trading_client, pos, exit_signal, trade["strategy"]
                         )
                 else:
+                    if trade.get("stop_breached_at"):
+                        self.trade_log.clear_stop_breach(trade["id"])
                     logger.info(
-                        "  %s: $%.2f (trailing stop: $%.2f, HWM: $%.2f) — OK",
+                        "  %s: $%.2f (stop: $%.2f) — OK",
                         trade["symbol"],
                         current_price,
-                        new_trailing,
-                        new_hwm,
+                        stop_level,
                     )
             except Exception as e:
                 logger.error("Stop-loss check failed for %s: %s", trade["symbol"], e)
+
+    def _stop_check_price(self, data_client, symbol: str) -> float | None:
+        """The price a stop is checked against, or None if there's no live one.
+
+        The last trade, not the bid: on the free IEX feed the best bid is often
+        far below where the stock is trading (AXTI's stop fired on a $71.00 bid
+        with the stock at $74.92). A thin name may have no recent print, so the
+        quote midpoint is the fallback. Neither fresh means holiday, halt or
+        feed trouble, and the check is skipped.
+        """
+        trade = get_latest_trade(data_client, symbol)
+        if is_quote_fresh(trade.get("timestamp")):
+            return trade["price"]
+        quote = get_latest_quote(data_client, symbol)
+        bid, ask = quote.get("bid_price") or 0, quote.get("ask_price") or 0
+        if is_quote_fresh(quote.get("timestamp")) and bid > 0 and ask > 0:
+            return (bid + ask) / 2
+        logger.warning(
+            "No live price for %s (last trade %s) — skipping stop check",
+            symbol,
+            trade.get("timestamp"),
+        )
+        return None
 
     def _notify_rate_limits(self):
         """Send an email notification if any API rate limits were hit."""

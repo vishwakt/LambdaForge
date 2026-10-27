@@ -1,5 +1,7 @@
 # Stock Trading Application — Specification
 
+> Historical milestone log — see README/ARCHITECTURE for current values.
+
 ## Overview
 
 Automated daily stock/options trading application connected to Alpaca API,

@@ -8,11 +8,19 @@ import time
 
 from alpaca.common.exceptions import APIError
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+from alpaca.data.requests import (
+    StockBarsRequest,
+    StockLatestQuoteRequest,
+    StockLatestTradeRequest,
+)
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
+from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    MarketOrderRequest,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -111,9 +119,42 @@ def get_positions(client: TradingClient) -> list[dict]:
             "current_price": float(p.current_price),
             "unrealized_pl": float(p.unrealized_pl),
             "unrealized_plpc": float(p.unrealized_plpc),
+            "unrealized_intraday_pl": float(p.unrealized_intraday_pl or 0),
+            "unrealized_intraday_plpc": float(p.unrealized_intraday_plpc or 0),
         }
         for p in positions
     ]
+
+
+def get_last_buy_fills(trading_client: TradingClient, symbols: list[str]) -> dict:
+    """Map symbol → datetime of its most recent filled buy.
+
+    One call for every symbol. Fails soft: an empty map just means the
+    caller shows positions without an entry date.
+    """
+    if not symbols:
+        return {}
+    try:
+        orders = trading_client.get_orders(
+            GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED,
+                side=OrderSide.BUY,
+                symbols=list(symbols),
+                limit=500,
+            )
+        )
+    except Exception as e:
+        logger.warning("Buy-fill lookup failed: %s", e)
+        return {}
+
+    fills: dict = {}
+    for order in orders:
+        filled_at = getattr(order, "filled_at", None)
+        if filled_at is None:
+            continue
+        if order.symbol not in fills or filled_at > fills[order.symbol]:
+            fills[order.symbol] = filled_at
+    return fills
 
 
 def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dict:
@@ -137,7 +178,78 @@ def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dic
         "ask_size": quote.ask_size,
         "bid_price": float(quote.bid_price),
         "bid_size": quote.bid_size,
+        # Needed to detect stale prices (e.g. Friday's last print on a holiday)
+        "timestamp": quote.timestamp,
     }
+
+
+def get_latest_trade(data_client: StockHistoricalDataClient, symbol: str) -> dict:
+    """Get the latest trade print for a symbol. Retries on rate limit.
+
+    Stops are checked against this rather than the quote: on the free IEX
+    feed the best bid is often far below where the stock is trading.
+    """
+    request = StockLatestTradeRequest(symbol_or_symbols=symbol)
+    for _ in range(3):
+        try:
+            trades = data_client.get_stock_latest_trade(request)
+            break
+        except APIError as e:
+            if e.status_code == 429:
+                _handle_rate_limit("get_latest_trade", e)
+                continue
+            raise
+    else:
+        raise APIError("Rate limit retries exhausted for get_latest_trade")
+    trade = trades[symbol]
+    return {"symbol": symbol, "price": float(trade.price), "timestamp": trade.timestamp}
+
+
+def get_open_buy_symbols(trading_client: TradingClient) -> set[str]:
+    """Symbols with a buy order still open at the broker.
+
+    Raises on failure rather than returning an empty set: a caller that can't
+    see open buys must not buy, or the position cap is blind again.
+    """
+    orders = trading_client.get_orders(
+        GetOrdersRequest(status=QueryOrderStatus.OPEN, side=OrderSide.BUY, limit=500)
+    )
+    return {o.symbol for o in orders}
+
+
+def get_market_clock(trading_client: TradingClient):
+    """Return Alpaca's market clock, or None if the call fails.
+
+    The clock's ``is_open`` is the exchange calendar's answer — holidays and
+    half-days included. Callers fall back to the weekday/time heuristic in
+    ``market_hours.is_market_open`` when this returns None.
+    """
+    try:
+        return trading_client.get_clock()
+    except Exception as e:
+        logger.warning("Market clock unavailable, falling back to heuristic: %s", e)
+        return None
+
+
+def has_open_sell_order(trading_client: TradingClient, symbol: str) -> bool:
+    """True if a sell order for *symbol* is already open at the broker.
+
+    Exits must be idempotent: a stop that stays triggered across monitor
+    cycles (slow fill, halt, or a queued order while the market is closed)
+    must not submit a fresh sell every cycle. Fails open — if the check
+    itself errors, the exit still proceeds so a stop-loss is never silently
+    suppressed.
+    """
+    try:
+        orders = trading_client.get_orders(
+            GetOrdersRequest(
+                status=QueryOrderStatus.OPEN, symbols=[symbol], side=OrderSide.SELL
+            )
+        )
+        return len(orders) > 0
+    except Exception as e:
+        logger.warning("Open-order check failed for %s (proceeding): %s", symbol, e)
+        return False
 
 
 def place_market_order(

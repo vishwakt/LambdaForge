@@ -9,7 +9,7 @@
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/serverless/sam/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![Cost](https://img.shields.io/badge/cost-~%240%2Fmonth-22c55e)](https://aws.amazon.com/free/)
+[![Cost](https://img.shields.io/badge/cost-~%240.15%2Fmonth-22c55e)](#-cost--about-015month-per-stack)
 
 *No servers. No babysitting. No cloud bill.*
 
@@ -23,7 +23,7 @@
 
 LambdaForge is a **production-grade, fully serverless algorithmic stock trading bot**. It runs entirely on AWS Lambda — no always-on server, no manual babysitting. EventBridge wakes it up on schedule, it scans a 200+ symbol watchlist, enforces 6-rule risk management, places trades through the Alpaca API, and emails you a digest. When the market closes, it goes back to sleep.
 
-**Paper trading is free.** You can run this at **~$0/month** using AWS Free Tier and Alpaca's paper trading account.
+**Paper trading is free on Alpaca, and AWS costs about $0.15/month per stack.** Everything that runs code stays inside AWS's always-free allowances; the few cents are storage.
 
 ```
                     ┌─────────────────────────────────────┐
@@ -34,7 +34,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
                     ┌──────────────▼──────────────────────┐
                     │        AWS Lambda (ARM64)           │
                     │  • Scans 200+ symbols               │
-                    │  • Runs 7 trading strategies        │
+                    │  • Runs 3 of 7 built-in strategies  │
                     │  • Enforces 6 risk rules            │
                     │  • Places orders via Alpaca         │
                     │  • Sends email digest               │
@@ -56,7 +56,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 | Requirement | Notes |
 |-------------|-------|
 | 🦙 **[Alpaca account](https://alpaca.markets)** | Free. Paper trading requires no deposit. Live trading requires a funded account. |
-| ☁️ **[AWS account](https://aws.amazon.com)** | Free tier covers everything at paper trading volumes |
+| ☁️ **[AWS account](https://aws.amazon.com)** | About $0.15/month per stack at paper trading volumes (see [Cost](#-cost--about-015month-per-stack)) |
 | 🐳 **Docker** | Required to build Lambda container images |
 | 🐍 **Python 3.9+** | Lambda runtime constraint |
 | 🔧 **[AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)** | For building and deploying |
@@ -64,23 +64,23 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 
 ---
 
-## 💸 Cost — Runs for ~$0/Month
+## 💸 Cost — About $0.15/month per stack
 
-One of LambdaForge's biggest advantages: **it costs almost nothing to run**.
+One of LambdaForge's biggest advantages: **it costs almost nothing to run**. Compute is free at this volume; what you pay for is storage.
 
-| AWS Service | What LambdaForge uses | Free Tier | Estimated cost |
-|-------------|----------------------|-----------|----------------|
-| **Lambda** | 7 functions, ~1M invocations/month | 1M req + 400K GB-s free | **$0** |
-| **EventBridge** | 6 scheduled rules | 14M events free | **$0** |
-| **S3** | < 1 MB for `trades.db` | 5 GB free | **$0** |
-| **SSM Parameter Store** | 12 parameters, ~3K reads/month | 10K API calls free | **$0** |
-| **SNS** | < 1K email notifications/month | 1K emails free | **$0** |
-| **KMS** | SecureString decryption on cold starts | 20K requests free | **~$0.15** |
-| **SES** | HTML trade digest emails | 3K emails/month free | **$0** |
-| **ECR** | Container image storage | 500 MB free | **$0** |
-| | | **Monthly total →** | **~$0.15** |
+| AWS Service | What LambdaForge uses (per stack) | Why it's cheap | Monthly |
+|-------------|-----------------------------------|----------------|---------|
+| **Lambda** | 6 arm64 functions, ~45K invocations/month at the default 1-minute interval | Always-free 1M requests + 400K GB-s | **$0** |
+| **EventBridge** | 5 scheduled rules: 4 New York-time crons + 1 rate rule | Free at this volume | **$0** |
+| **SSM Parameter Store + KMS** | 13 Standard parameters; the Alpaca keys are SecureStrings on the AWS-managed key, decrypted once per container and then cached | Standard parameters are free; a few thousand decrypts a month against KMS's 20K free requests | **$0** |
+| **SNS + SES** | Alerts plus hourly, daily and weekly digest emails, a few hundred a month | Free at this volume | **$0** |
+| **S3** | 2–12 MB `trades.db`, re-uploaded up to once a minute; noncurrent versions expire after 3 days (5 newest kept); weekly audit exports go straight to Glacier Deep Archive for 7 years | Lifecycle rules keep the version history bounded | **~$0.07** |
+| **ECR** | The arm64 container image | Lifecycle policy keeps the 10 newest images and expires untagged ones after 3 days | **~$0.08** |
+| | | **Monthly total per stack →** | **~$0.15** |
 
-> Running **3 stacks** (paper + live + experimental) in parallel costs ~$0.45/month. Still cheaper than a cup of coffee.
+> Running **3 stacks** (paper + experimental + live-config) in parallel costs ~$0.45/month. Still cheaper than a cup of coffee.
+
+> **How these numbers were made.** They're projections from the September 2026 bill with both lifecycle rules in place, not a closed invoice. Before those rules, S3 kept every minute's copy of `trades.db` and ECR kept every image ever pushed, and three stacks cost about $5.70/month. S3 and ECR are priced as paid here because the 12-month free tier that used to cover them was replaced for new AWS accounts in July 2025. The Lambda free tier is per account, so it's shared with anything else you run there.
 
 Compare this to a VPS or dedicated server which would run $5–$50/month for equivalent uptime.
 
@@ -90,15 +90,15 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 
 | Feature | Details |
 |---------|---------|
-| 🧠 **7 trading strategies** | MACD, Bollinger Squeeze, Z-Score Mean Reversion, RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY |
+| 🧠 **7 trading strategies** (3 enabled by default) | MACD, Bollinger Squeeze, Z-Score Mean Reversion (enabled); RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY (available via `config.json`) |
 | 🛡️ **6-rule risk manager** | Confidence gate, daily loss limit, max positions, concentration cap, stop-loss enforcement, dynamic position sizing |
-| 📈 **Trailing stop-loss** | Price-based trailing stops updated every minute during market hours |
+| 📈 **Trailing stop-loss** | Hybrid trailing stop — the tighter of 5% below the high-water mark or 2×ATR — re-evaluated every minute during market hours, never moves down |
 | 🔴 **Kill switch** | One command liquidates everything and halts trading instantly |
 | 📊 **Multi-stack** | Paper and live run as independent stacks — no shared state |
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
 | ⚙️ **Zero-redeploy config** | Tune risk params and flip the kill switch via SSM — no deploy needed |
 | 🔒 **Buy deduplication** | Prevents duplicate orders while still allowing pyramiding into winning positions |
-| 🕐 **Market hours guard** | Automatically skips runs outside 09:30–16:00 ET Mon–Fri |
+| 🕐 **Market hours guard** | Checks Alpaca's market clock on every run — skips holidays, half-days, and anything outside 09:30–16:00 ET (weekday/time heuristic as fallback) |
 | 🏷️ **Environment tagging** | Email subjects prefixed `[PAPER]`, `[LIVE]`, `[BOT-2]` for easy inbox filtering |
 
 ---
@@ -156,7 +156,7 @@ sam deploy             # Subsequent deploys
 
 ### 6. Subscribe to alerts
 
-Go to **SNS → Topics → stock-trading-bot-alerts → Create subscription → Email**.
+If you passed `NotificationEmail` at deploy time, SAM already created the subscription — confirm it from the email SNS sends you. Otherwise: **SNS → Topics → the topic whose display name is "Stock Trading Bot Alerts (paper)" → Create subscription → Email**.
 
 ### 7. Verify everything is working
 
@@ -172,17 +172,17 @@ All strategies implement a common interface — they receive historical OHLCV ba
 
 | Strategy | Entry Signal | Stop Loss | Take Profit | Best for |
 |----------|-------------|-----------|-------------|----------|
-| **MACD Crossover** | 12/26 EMA bullish cross + signal line | 4% below entry | 8% above | Trending markets |
-| **Bollinger Squeeze** | Band compression → breakout + volume | 3% below entry | 6% above | Volatility expansion |
-| **Z-Score Mean Reversion** | 50-day Z-score < −2 (oversold) | 5% below entry | Z > +2 | Range-bound markets |
+| **MACD Crossover** | 12/26 EMA bullish cross + signal line | 3% below entry | 6% above | Trending markets |
+| **Bollinger Squeeze** | Band compression → breakout + volume | Middle band (20-SMA) | 1:1 measured move above entry | Volatility expansion |
+| **Z-Score Mean Reversion** | 50-day Z-score < −2 (oversold) | 1 std-dev below entry | Rolling mean (Z ≈ 0); SELL signal at Z > +2 | Range-bound markets |
 | **RSI Confluence** | RSI oversold + uptrend + volume | 4% below entry | 8% above | Momentum dips |
-| **EMA Crossover + ADX** | 9/21 EMA cross + ADX > 25 | 3% below entry | 7% above | Strong trends |
+| **EMA Crossover + ADX** | 9/21 EMA cross + ADX > 25 | 3% below entry | 6% above | Strong trends |
 | **RSI + MACD Confluence** | RSI oversold + MACD bullish cross | 4% below entry | 8% above | Reversal signals |
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
 
-> **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises.
+> **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
 
-Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes about 30 lines of code.
+Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes ~50 lines of code.
 
 ---
 
@@ -237,11 +237,78 @@ aws lambda invoke --function-name $KILL_FN \
 
 No CLI? Set `/stock-bot/kill-switch` → `kill` directly in the AWS Console. The next Lambda invocation picks it up.
 
+### From your phone (Telegram)
+
+A Telegram bot can operate any stack by name. Every reply carries a button
+keyboard, so after the first `/bots` each command is one tap.
+
+Navigation is two taps: pick a bot, then pick an action.
+
+| Message | Effect |
+|---------|--------|
+| `/bots` | Choose a bot |
+| `/stock-bot-2` | Choose an action for that bot |
+| `/stock-bot-2 status` | Kill switch, strategies, equity, cash, open positions |
+| `/stock-bot-2 positions` | Each position with entry date, today's P&L and total P&L |
+| `/stock-bot-2 strategies` | Which strategies run, with a toggle for each |
+| `/stock-bot-2 on rsi_macd` | Start running that strategy — live within a minute |
+| `/stock-bot-2 off macd` | Stop running it |
+| `/stock-bot-2 kill` | Shows what would be liquidated and offers a confirm button |
+| `/stock-bot-2 kill confirm` | Invokes that stack's KillSwitchFunction: cancels orders, sells everything, halts |
+| `/stock-bot-2 alive` | Resumes trading |
+
+Strategy changes are written to the bot's `strategies` SSM parameter and picked
+up on its next scheduled run — no redeploy, no restart, and each bot can run a
+different set.
+
+Bot names are the SSM prefixes without slashes: `stock-bot`, `stock-bot-2`,
+`stock-bot-live`. Only chat IDs on the allowlist get a reply; anyone else is
+ignored silently. `kill` runs inside the target stack's own Lambda, so the
+bot never holds Alpaca credentials of its own.
+
+**Setup (once):** create a bot with [@BotFather](https://t.me/BotFather),
+message it once, and read your chat ID from
+`https://api.telegram.org/bot<TOKEN>/getUpdates`.
+
+**Deployed (always on):** the paper stack includes `TelegramOpsFunction`
+behind a Lambda Function URL. Create three parameters in SSM Parameter Store,
+then deploy the paper stack:
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `/stock-bot-ops/telegram-token` | SecureString | BotFather token |
+| `/stock-bot-ops/telegram-chat-ids` | String | Your chat ID (comma-separated for several) |
+| `/stock-bot-ops/telegram-webhook-secret` | SecureString | Random string, e.g. `openssl rand -hex 32` |
+
+Register the webhook once, with the URL from the stack's `TelegramWebhookUrl`
+output and the same secret:
+
+```bash
+curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+  -d "url=<TelegramWebhookUrl>" \
+  -d "secret_token=<webhook secret>" \
+  -d 'allowed_updates=["message"]'
+```
+
+Telegram sends that secret in a header on every call; the function answers
+`403` to anything else. `getWebhookInfo` confirms the registration.
+
+**Local (for development):** put `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_ALLOWED_CHAT_IDS` in `.env` and run the poller on any machine with
+AWS CLI credentials:
+
+```bash
+python -m src.telegram_bot
+```
+
+Polling and the webhook are mutually exclusive: run `deleteWebhook` before
+polling, and `setWebhook` again afterwards.
+
 ---
 
 ## 🏗️ Architecture
 
-Seven Lambda functions, one EventBridge schedule each:
+Six Lambda functions per stack — five on EventBridge schedules, plus a manually invoked kill switch — and a seventh in the paper stack only for Telegram:
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
@@ -251,6 +318,9 @@ Seven Lambda functions, one EventBridge schedule each:
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |
 | `KillSwitch` | Manual invoke | Emergency halt — liquidates everything |
+| `TelegramOps` | Telegram webhook (paper stack) | Status, positions, kill, alive for all three stacks |
+
+> Schedules run on EventBridge Scheduler with `ScheduleExpressionTimezone: America/New_York`, so these times hold across daylight-saving transitions.
 
 For the full architecture deep-dive including data flow diagrams, SQLite schema, and multi-stack setup: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -262,7 +332,7 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-55 tests covering market hours, buy deduplication, strategy signal generation, SSM caching, environment labelling, and config defaults.
+175 tests covering market hours, buy deduplication and fill reconciliation, the Telegram ops bot, live SSM reconfiguration, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 

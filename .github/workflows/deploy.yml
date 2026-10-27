@@ -3,8 +3,25 @@ name: Build & Deploy
 on:
   push:
     branches: [main]
+    # Docs-only changes never affect deployable artifacts. Skip the
+    # rebuild + ECR push + empty-changeset SAM deploy that would
+    # otherwise burn ~5–8 min of CI per docs merge.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/CODEOWNERS'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/CODEOWNERS'
+      - 'LICENSE'
   # Manual trigger for re-running a deploy without a code change
   # (e.g., after an IAM/OIDC fix or an SSM parameter update).
   workflow_dispatch:
@@ -45,7 +62,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       id-token: write
       contents: read
@@ -72,10 +89,25 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Create ECR repo if needed
+      - name: Ensure ECR repo, cost tags, and lifecycle policy
+        env:
+          ECR_REPO: stock-trading-bot
+          ENVIRONMENT: paper
         run: |
-          aws ecr describe-repositories --repository-names stock-trading-bot 2>/dev/null || \
-          aws ecr create-repository --repository-name stock-trading-bot
+          aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_REPO"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          # ECR repos live outside the CloudFormation stack, so stack tags do
+          # not reach them. Tag explicitly or this cost is unattributable.
+          aws ecr tag-resource \
+            --resource-arn "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/${ECR_REPO}" \
+            --tags Key=Project,Value=stock-trading-bot Key=Environment,Value="$ENVIRONMENT"
+          # Every deploy leaves two images behind: the orphaned previous
+          # :latest, and SAM's own tagged push. Without this they accumulate
+          # forever. Idempotent — re-applying the same policy is a no-op.
+          aws ecr put-lifecycle-policy \
+            --repository-name "$ECR_REPO" \
+            --lifecycle-policy-text file://ecr-lifecycle-policy.json
 
       - name: Build and push Docker image
         run: |
@@ -99,6 +131,7 @@ jobs:
             --resolve-s3 \
             --image-repository ${{ steps.ecr-login.outputs.registry }}/stock-trading-bot \
             --capabilities CAPABILITY_IAM \
+            --tags Project=stock-trading-bot Environment=paper \
             --parameter-overrides \
               NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }} \
               Environment=paper
