@@ -89,7 +89,14 @@ class TradingEngine:
         logger.info("TradingEngine initialized in %s mode", mode_label)
 
     def run_daily_scan(self):
-        """Full daily trading loop. Called by scheduler or manually."""
+        """Market-open summary. Reads only: it places no orders and writes nothing.
+
+        The monitor handles exits and entries every minute, so a 9:30 scan
+        that also traded bought the same symbols as the monitor's 9:30 run.
+        Both also downloaded trades.db and uploaded it back, and whichever
+        upload landed last erased the other's writes. The open snapshot is
+        now written by the monitor's first run of the day.
+        """
         logger.info("=" * 60)
         logger.info("DAILY SCAN STARTED at %s", datetime.now().isoformat())
         logger.info("=" * 60)
@@ -105,23 +112,6 @@ class TradingEngine:
             len(open_positions),
         )
 
-        # Save daily snapshot (start of day)
-        self.trade_log.save_daily_snapshot(
-            equity=account_info["equity"],
-            cash=account_info["cash"],
-            portfolio_value=account_info["portfolio_value"],
-            open_positions=len(open_positions),
-        )
-
-        # Phase 1: Check existing positions for exit signals
-        self._check_exit_signals(trading_client, open_positions)
-
-        # Phase 2: Scan for new entry signals
-        self._scan_for_entries(trading_client)
-
-        # Daily summary notification
-        account_info = get_account_info(trading_client)
-        open_positions = get_positions(trading_client)
         prev = self.trade_log.get_previous_snapshot()
         daily_pnl = None
         if prev:
@@ -501,8 +491,10 @@ class TradingEngine:
         data_client = get_data_client(paper=self.paper)
         open_positions = get_positions(trading_client)
 
-        # Phase 0: Learn what the broker actually filled since last cycle,
-        # and close lots the broker no longer holds
+        # Phase 0: The day's first run records the open, before it trades.
+        # Then learn what the broker actually filled since last cycle, and
+        # close lots the broker no longer holds
+        self._save_open_snapshot(trading_client, open_positions)
         self._reconcile_buy_fills(trading_client)
         self._close_phantom_lots(trading_client)
 
@@ -518,6 +510,27 @@ class TradingEngine:
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
+
+    def _save_open_snapshot(self, trading_client, open_positions):
+        """Write the day's first snapshot, once, before the run trades.
+
+        The 15:55 snapshot overwrites the row; this one is what remains if
+        that run fails. It is written here rather than by the 9:30 scan so
+        only one Lambda writes trades.db at the open. A failure is logged and
+        never stops the run.
+        """
+        try:
+            if self.trade_log.has_snapshot_today():
+                return
+            account_info = get_account_info(trading_client)
+            self.trade_log.save_daily_snapshot(
+                equity=account_info["equity"],
+                cash=account_info["cash"],
+                portfolio_value=account_info["portfolio_value"],
+                open_positions=len(open_positions),
+            )
+        except Exception as e:
+            logger.error("Open snapshot failed (trading unaffected): %s", e)
 
     def _reconcile_buy_fills(self, trading_client):
         """Apply the broker's order state to buys we still have as 'submitted'.

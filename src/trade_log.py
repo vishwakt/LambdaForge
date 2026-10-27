@@ -431,6 +431,18 @@ class TradeLog:
         finally:
             conn.close()
 
+    def has_snapshot_today(self) -> bool:
+        """True once a snapshot row exists for today."""
+        today = date.today().isoformat()
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM daily_snapshots WHERE date = ?", (today,)
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
     # --- Risk rejection logging ---
 
     def log_risk_rejection(

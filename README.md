@@ -315,8 +315,8 @@ Six Lambda functions per stack — five on EventBridge schedules, plus a manuall
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
-| `DailyScan` | 09:30 ET weekdays | Full scan: exits, entries, risk checks |
-| `MonitorStops` | Every 1 min (market hours) | Trailing stop enforcement + opportunistic entries |
+| `DailyScan` | 09:30 ET weekdays | Market-open summary email; places no orders |
+| `MonitorStops` | Every 1 min (market hours) | All trading: trailing stops, strategy exits, entries, risk checks; records the open snapshot |
 | `EodSnapshot` | 15:55 ET weekdays | End-of-day P&L + benchmark comparison |
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |

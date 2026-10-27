@@ -177,7 +177,7 @@ def cmd_strategies(args):
 
 
 def cmd_run_once(args):
-    """Run the daily trading scan once (no scheduler)."""
+    """Send the market-open summary once; `stop-monitor` runs a trading cycle."""
     import logging
 
     from src.config import load_config
@@ -409,7 +409,8 @@ def main():
 
     # run-once
     run_once_parser = subparsers.add_parser(
-        "run-once", help="Run daily scan once (no scheduler)"
+        "run-once",
+        help="Send the market-open summary once (orders: use stop-monitor)",
     )
     run_once_parser.add_argument("--config", "-c", help="Path to config.json")
 
