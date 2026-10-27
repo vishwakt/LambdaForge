@@ -228,8 +228,16 @@ class TradingEngine:
             logger.error("Can't see open orders, skipping entries this run: %s", e)
             return
         committed_cash = 0.0
+        held = {p["symbol"] for p in open_positions}
 
         for symbol in symbols:
+            # One position per symbol unless pyramiding is on: a symbol the
+            # stack holds (long or short) or is already buying isn't a
+            # candidate. Skipped, not rejected, so it logs no rejection row.
+            if not self.config.risk.allow_pyramiding and (
+                symbol in held or symbol in pending
+            ):
+                continue
             bars = all_bars.get(symbol)
             if bars is None or bars.empty:
                 logger.error("No bar data for %s, skipping entry scan", symbol)

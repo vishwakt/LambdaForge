@@ -97,7 +97,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 | 📊 **Multi-stack** | Paper and live run as independent stacks — no shared state |
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
 | ⚙️ **Zero-redeploy config** | Tune risk params and flip the kill switch via SSM — no deploy needed |
-| 🔒 **Buy deduplication** | Prevents duplicate orders while still allowing pyramiding into winning positions |
+| 🔒 **One position per symbol** | A symbol already held, or already being bought, isn't bought again. Set `allow_pyramiding` to add to positions instead, up to the concentration cap |
 | 🕐 **Market hours guard** | Checks Alpaca's market clock on every run — skips holidays, half-days, and anything outside 09:30–16:00 ET (weekday/time heuristic as fallback) |
 | 🏷️ **Environment tagging** | Email subjects prefixed `[PAPER]`, `[LIVE]`, `[BOT-2]` for easy inbox filtering |
 
@@ -203,6 +203,7 @@ aws ssm put-parameter --name "/stock-bot/trailing_stop_pct" --value "0.03" --typ
 | `max_concentration` | `0.15` | Max portfolio fraction per symbol |
 | `max_daily_loss` | `0.02` | Daily loss limit — stops trading if hit |
 | `min_confidence` | `0.5` | Minimum signal confidence to trade |
+| `allow_pyramiding` | `false` | Buy more of a symbol already held, up to `max_concentration` |
 | `monitor_interval` | `1` | MonitorStops interval in minutes |
 | `notify_frequency` | `hourly` | `realtime`, `hourly`, or `daily` |
 | `kill-switch` | `alive` | Set to `kill` to halt all trading immediately |
