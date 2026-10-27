@@ -210,6 +210,35 @@ class TradeLog:
         finally:
             conn.close()
 
+    def close_lot_reconciled(self, trade_id: int, reason: str):
+        """Close a lot the broker no longer holds, without inventing a trade.
+
+        Writes an exit row with status ``reconciled`` and no order id or P&L,
+        so the lot stops looking open and statistics are unaffected.
+        """
+        conn = self._get_conn()
+        try:
+            lot = conn.execute(
+                "SELECT * FROM trades WHERE id = ?", (trade_id,)
+            ).fetchone()
+            conn.execute(
+                """INSERT INTO trades
+                   (timestamp, symbol, side, qty, order_type, order_id, status,
+                    strategy, reason, parent_trade_id)
+                   VALUES (?, ?, 'sell', ?, 'reconcile', NULL, 'reconciled', ?, ?, ?)""",
+                (
+                    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                    lot["symbol"],
+                    lot["qty"],
+                    lot["strategy"],
+                    reason,
+                    trade_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def exited_since(self, symbol: str, since: datetime) -> bool:
         """True if any sell of *symbol* was logged at or after *since* (naive UTC)."""
         conn = self._get_conn()
