@@ -8,7 +8,11 @@ import time
 
 from alpaca.common.exceptions import APIError
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+from alpaca.data.requests import (
+    StockBarsRequest,
+    StockLatestQuoteRequest,
+    StockLatestTradeRequest,
+)
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
@@ -177,6 +181,40 @@ def get_latest_quote(data_client: StockHistoricalDataClient, symbol: str) -> dic
         # Needed to detect stale prices (e.g. Friday's last print on a holiday)
         "timestamp": quote.timestamp,
     }
+
+
+def get_latest_trade(data_client: StockHistoricalDataClient, symbol: str) -> dict:
+    """Get the latest trade print for a symbol. Retries on rate limit.
+
+    Stops are checked against this rather than the quote: on the free IEX
+    feed the best bid is often far below where the stock is trading.
+    """
+    request = StockLatestTradeRequest(symbol_or_symbols=symbol)
+    for _ in range(3):
+        try:
+            trades = data_client.get_stock_latest_trade(request)
+            break
+        except APIError as e:
+            if e.status_code == 429:
+                _handle_rate_limit("get_latest_trade", e)
+                continue
+            raise
+    else:
+        raise APIError("Rate limit retries exhausted for get_latest_trade")
+    trade = trades[symbol]
+    return {"symbol": symbol, "price": float(trade.price), "timestamp": trade.timestamp}
+
+
+def get_open_buy_symbols(trading_client: TradingClient) -> set[str]:
+    """Symbols with a buy order still open at the broker.
+
+    Raises on failure rather than returning an empty set: a caller that can't
+    see open buys must not buy, or the position cap is blind again.
+    """
+    orders = trading_client.get_orders(
+        GetOrdersRequest(status=QueryOrderStatus.OPEN, side=OrderSide.BUY, limit=500)
+    )
+    return {o.symbol for o in orders}
 
 
 def get_market_clock(trading_client: TradingClient):

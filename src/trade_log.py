@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 
 class TradeLog:
@@ -66,6 +66,7 @@ class TradeLog:
             migrations = [
                 ("trades", "high_water_mark", "REAL"),
                 ("trades", "trailing_stop", "REAL"),
+                ("trades", "stop_breached_at", "TEXT"),
                 ("daily_snapshots", "spy_close", "REAL"),
                 ("daily_snapshots", "qqq_close", "REAL"),
                 ("daily_snapshots", "dia_close", "REAL"),
@@ -111,7 +112,9 @@ class TradeLog:
                     take_profit, parent_trade_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    datetime.now().isoformat(),
+                    # Naive UTC: what Lambda has always written. Local runs
+                    # used to write local time, which broke same-day checks.
+                    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                     symbol,
                     side,
                     qty,
@@ -184,6 +187,40 @@ class TradeLog:
                 (trailing_stop, high_water_mark, trade_id),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def mark_stop_breach(self, trade_id: int):
+        """Record that this lot's stop was breached, pending confirmation."""
+        self._set_stop_breach(
+            trade_id, datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        )
+
+    def clear_stop_breach(self, trade_id: int):
+        """The price recovered above the stop before a second run confirmed it."""
+        self._set_stop_breach(trade_id, None)
+
+    def _set_stop_breach(self, trade_id: int, value: str | None):
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE trades SET stop_breached_at = ? WHERE id = ?", (value, trade_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def exited_since(self, symbol: str, since: datetime) -> bool:
+        """True if any sell of *symbol* was logged at or after *since* (naive UTC)."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                """SELECT 1 FROM trades
+                   WHERE symbol = ? AND side = 'sell' AND timestamp >= ?
+                   LIMIT 1""",
+                (symbol, since.isoformat()),
+            ).fetchone()
+            return row is not None
         finally:
             conn.close()
 

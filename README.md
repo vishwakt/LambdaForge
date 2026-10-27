@@ -9,7 +9,7 @@
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/serverless/sam/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![Cost](https://img.shields.io/badge/cost-~%240%2Fmonth-22c55e)](https://aws.amazon.com/free/)
+[![Cost](https://img.shields.io/badge/cost-~%240.15%2Fmonth-22c55e)](#-cost--about-015month-per-stack)
 
 *No servers. No babysitting. No cloud bill.*
 
@@ -23,7 +23,7 @@
 
 LambdaForge is a **production-grade, fully serverless algorithmic stock trading bot**. It runs entirely on AWS Lambda — no always-on server, no manual babysitting. EventBridge wakes it up on schedule, it scans a 200+ symbol watchlist, enforces 6-rule risk management, places trades through the Alpaca API, and emails you a digest. When the market closes, it goes back to sleep.
 
-**Paper trading is free.** You can run this at **~$0/month** using AWS Free Tier and Alpaca's paper trading account.
+**Paper trading is free on Alpaca, and AWS costs about $0.15/month per stack.** Everything that runs code stays inside AWS's always-free allowances; the few cents are storage.
 
 ```
                     ┌─────────────────────────────────────┐
@@ -56,7 +56,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 | Requirement | Notes |
 |-------------|-------|
 | 🦙 **[Alpaca account](https://alpaca.markets)** | Free. Paper trading requires no deposit. Live trading requires a funded account. |
-| ☁️ **[AWS account](https://aws.amazon.com)** | Free tier covers everything at paper trading volumes |
+| ☁️ **[AWS account](https://aws.amazon.com)** | About $0.15/month per stack at paper trading volumes (see [Cost](#-cost--about-015month-per-stack)) |
 | 🐳 **Docker** | Required to build Lambda container images |
 | 🐍 **Python 3.9+** | Lambda runtime constraint |
 | 🔧 **[AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)** | For building and deploying |
@@ -64,23 +64,23 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 
 ---
 
-## 💸 Cost — Runs for ~$0/Month
+## 💸 Cost — About $0.15/month per stack
 
-One of LambdaForge's biggest advantages: **it costs almost nothing to run**.
+One of LambdaForge's biggest advantages: **it costs almost nothing to run**. Compute is free at this volume; what you pay for is storage.
 
-| AWS Service | What LambdaForge uses | Free Tier | Estimated cost |
-|-------------|----------------------|-----------|----------------|
-| **Lambda** | 6 functions, ~1M invocations/month | 1M req + 400K GB-s free | **$0** |
-| **EventBridge** | 5 scheduled rules | 14M events free | **$0** |
-| **S3** | 2–12 MB `trades.db`, re-uploaded up to once a minute (noncurrent versions expire after 3 days, 5 newest kept; weekly audit exports go straight to Glacier Deep Archive for 7 years) | 5 GB free | **$0** |
-| **SSM Parameter Store** | 12 parameters, ~3K reads/month | 10K API calls free | **$0** |
-| **SNS** | < 1K email notifications/month | 1K emails free | **$0** |
-| **KMS** | SecureString decryption on cold starts | 20K requests free | **~$0.15** |
-| **SES** | HTML trade digest emails | 3K emails/month free | **$0** |
-| **ECR** | Container image storage | 500 MB free | **$0** |
-| | | **Monthly total →** | **~$0.15** |
+| AWS Service | What LambdaForge uses (per stack) | Why it's cheap | Monthly |
+|-------------|-----------------------------------|----------------|---------|
+| **Lambda** | 6 arm64 functions, ~45K invocations/month at the default 1-minute interval | Always-free 1M requests + 400K GB-s | **$0** |
+| **EventBridge** | 5 scheduled rules: 4 New York-time crons + 1 rate rule | Free at this volume | **$0** |
+| **SSM Parameter Store + KMS** | 13 Standard parameters; the Alpaca keys are SecureStrings on the AWS-managed key, decrypted once per container and then cached | Standard parameters are free; a few thousand decrypts a month against KMS's 20K free requests | **$0** |
+| **SNS + SES** | Alerts plus hourly, daily and weekly digest emails, a few hundred a month | Free at this volume | **$0** |
+| **S3** | 2–12 MB `trades.db`, re-uploaded up to once a minute; noncurrent versions expire after 3 days (5 newest kept); weekly audit exports go straight to Glacier Deep Archive for 7 years | Lifecycle rules keep the version history bounded | **~$0.07** |
+| **ECR** | The arm64 container image | Lifecycle policy keeps the 10 newest images and expires untagged ones after 3 days | **~$0.08** |
+| | | **Monthly total per stack →** | **~$0.15** |
 
-> Running **3 stacks** (paper + live + experimental) in parallel costs ~$0.50/month. Still cheaper than a cup of coffee.
+> Running **3 stacks** (paper + experimental + live-config) in parallel costs ~$0.45/month. Still cheaper than a cup of coffee.
+
+> **How these numbers were made.** They're projections from the September 2026 bill with both lifecycle rules in place, not a closed invoice. Before those rules, S3 kept every minute's copy of `trades.db` and ECR kept every image ever pushed, and three stacks cost about $5.70/month. S3 and ECR are priced as paid here because the 12-month free tier that used to cover them was replaced for new AWS accounts in July 2025. The Lambda free tier is per account, so it's shared with anything else you run there.
 
 Compare this to a VPS or dedicated server which would run $5–$50/month for equivalent uptime.
 

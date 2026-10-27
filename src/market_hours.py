@@ -34,6 +34,17 @@ MARKET_DAYS = range(0, 5)  # Monday=0 through Friday=4
 MAX_QUOTE_AGE = timedelta(minutes=15)
 
 
+def trading_day_start_utc(now: datetime | None = None) -> datetime:
+    """Midnight in New York for the current trading day, as naive UTC.
+
+    Trade timestamps are stored as naive UTC, so the result compares with
+    them directly. A New York day never splits at midnight UTC this way.
+    """
+    now = now or datetime.now(timezone.utc)
+    midnight = now.astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def is_market_open(now: datetime | None = None, clock=None) -> bool:
     """Return True if US equity markets are currently open.
 

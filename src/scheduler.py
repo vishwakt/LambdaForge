@@ -13,6 +13,8 @@ from src.client import (
     get_account_info,
     get_data_client,
     get_latest_quote,
+    get_latest_trade,
+    get_open_buy_symbols,
     get_order,
     get_positions,
     get_rate_limit_hits,
@@ -43,6 +45,10 @@ _DEAD_ORDER_STATUSES = frozenset(
         "suspended",
     }
 )
+# A stop breached by less than this fraction waits for the next run to
+# confirm it; a price further through the stop than this sells at once.
+STOP_GAP_PCT = 0.05
+
 # Pending buys looked up per monitor cycle. Fills normally land within one
 # cycle, so this only matters for draining a backlog under the 200 req/min cap.
 FILL_RECONCILE_BATCH = 50
@@ -110,7 +116,7 @@ class TradingEngine:
         self._check_exit_signals(trading_client, open_positions)
 
         # Phase 2: Scan for new entry signals
-        self._scan_for_entries(trading_client, account_info, open_positions)
+        self._scan_for_entries(trading_client)
 
         # Daily summary notification
         account_info = get_account_info(trading_client)
@@ -193,7 +199,7 @@ class TradingEngine:
                     self._execute_exit(trading_client, pos, signal, strat_name)
                     break
 
-    def _scan_for_entries(self, trading_client, account_info, open_positions):
+    def _scan_for_entries(self, trading_client):
         """Scan watchlist for new BUY signals."""
         symbols = self.config.scheduler.symbols
         # Ensure SPY is fetched for relative_strength strategy
@@ -209,6 +215,18 @@ class TradingEngine:
             return
 
         spy_bars = all_bars.get("SPY")
+
+        # One snapshot per run, then track what this run commits. Re-reading
+        # positions per signal doesn't help: an order that hasn't filled is
+        # not a position, so a burst of buys all saw the same count.
+        try:
+            account_info = get_account_info(trading_client)
+            open_positions = get_positions(trading_client)
+            pending = set(get_open_buy_symbols(trading_client))
+        except Exception as e:
+            logger.error("Can't see open orders, skipping entries this run: %s", e)
+            return
+        committed_cash = 0.0
 
         for symbol in symbols:
             bars = all_bars.get(symbol)
@@ -245,10 +263,12 @@ class TradingEngine:
                     signal.reason,
                 )
 
-                account_info = get_account_info(trading_client)
-                open_positions = get_positions(trading_client)
-
-                result = self.risk_manager.check(signal, account_info, open_positions)
+                result = self.risk_manager.check(
+                    signal,
+                    {**account_info, "cash": account_info["cash"] - committed_cash},
+                    open_positions,
+                    pending_buy_symbols=pending,
+                )
 
                 if result.verdict == RiskVerdict.REJECTED:
                     self.trade_log.log_risk_rejection(
@@ -266,15 +286,17 @@ class TradingEngine:
                     )
                     continue
 
-                self._execute_entry(
+                if self._execute_entry(
                     trading_client, signal, result, strat_name, bars=bars
-                )
+                ):
+                    pending.add(symbol)
+                    committed_cash += result.approved_qty * (signal.entry_price or 0)
                 break
 
     def _execute_entry(
         self, trading_client, signal, risk_result, strategy_name, bars=None
-    ):
-        """Place a buy order and log it."""
+    ) -> bool:
+        """Place a buy order and log it. True if the order was placed."""
         try:
             order = place_market_order(
                 trading_client,
@@ -333,8 +355,10 @@ class TradingEngine:
                 reason=signal.reason,
                 all_strategy_signals=all_strategy_signals,
             )
+            return True
         except Exception as e:
             logger.error("ORDER FAILED: BUY %s: %s", signal.symbol, e)
+            return False
 
     def _execute_exit(self, trading_client, position, signal, strategy_name):
         """Place a sell order for an existing position.
@@ -436,7 +460,6 @@ class TradingEngine:
         """
         trading_client = get_trading_client(paper=self.paper)
         data_client = get_data_client(paper=self.paper)
-        account_info = get_account_info(trading_client)
         open_positions = get_positions(trading_client)
 
         # Phase 0: Learn what the broker actually filled since last cycle
@@ -450,9 +473,7 @@ class TradingEngine:
         self._check_exit_signals(trading_client, open_positions)
 
         # Phase 3: Scan for new entry signals (batched bars)
-        account_info = get_account_info(trading_client)
-        open_positions = get_positions(trading_client)
-        self._scan_for_entries(trading_client, account_info, open_positions)
+        self._scan_for_entries(trading_client)
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
@@ -565,20 +586,26 @@ class TradingEngine:
                 continue
 
             try:
-                quote = get_latest_quote(data_client, trade["symbol"])
-                if not is_quote_fresh(quote.get("timestamp")):
-                    # Holiday / halted / feed issue: this is not a live price.
-                    logger.warning(
-                        "Stale quote for %s (as of %s) — skipping stop check",
-                        trade["symbol"],
-                        quote.get("timestamp"),
-                    )
+                current_price = self._stop_check_price(data_client, trade["symbol"])
+                if current_price is None:
                     continue
-                current_price = quote["bid_price"]
                 stop_level = self._stop_level(trade, current_price)
 
                 # --- Check if stop is triggered ---
                 if current_price <= stop_level:
+                    gapped = current_price <= stop_level * (1 - STOP_GAP_PCT)
+                    if not gapped and not trade.get("stop_breached_at"):
+                        # One print through the stop is often noise on a thin
+                        # feed. Sell only if the next run still agrees.
+                        self.trade_log.mark_stop_breach(trade["id"])
+                        logger.warning(
+                            "STOP BREACHED: %s at $%.2f (stop: $%.2f) — "
+                            "selling if the next run confirms",
+                            trade["symbol"],
+                            current_price,
+                            stop_level,
+                        )
+                        continue
                     logger.warning(
                         "STOP TRIGGERED: %s at $%.2f (stop: $%.2f)",
                         trade["symbol"],
@@ -612,6 +639,8 @@ class TradingEngine:
                             trading_client, pos, exit_signal, trade["strategy"]
                         )
                 else:
+                    if trade.get("stop_breached_at"):
+                        self.trade_log.clear_stop_breach(trade["id"])
                     logger.info(
                         "  %s: $%.2f (stop: $%.2f) — OK",
                         trade["symbol"],
@@ -620,6 +649,29 @@ class TradingEngine:
                     )
             except Exception as e:
                 logger.error("Stop-loss check failed for %s: %s", trade["symbol"], e)
+
+    def _stop_check_price(self, data_client, symbol: str) -> float | None:
+        """The price a stop is checked against, or None if there's no live one.
+
+        The last trade, not the bid: on the free IEX feed the best bid is often
+        far below where the stock is trading (AXTI's stop fired on a $71.00 bid
+        with the stock at $74.92). A thin name may have no recent print, so the
+        quote midpoint is the fallback. Neither fresh means holiday, halt or
+        feed trouble, and the check is skipped.
+        """
+        trade = get_latest_trade(data_client, symbol)
+        if is_quote_fresh(trade.get("timestamp")):
+            return trade["price"]
+        quote = get_latest_quote(data_client, symbol)
+        bid, ask = quote.get("bid_price") or 0, quote.get("ask_price") or 0
+        if is_quote_fresh(quote.get("timestamp")) and bid > 0 and ask > 0:
+            return (bid + ask) / 2
+        logger.warning(
+            "No live price for %s (last trade %s) — skipping stop check",
+            symbol,
+            trade.get("timestamp"),
+        )
+        return None
 
     def _notify_rate_limits(self):
         """Send an email notification if any API rate limits were hit."""

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.config import RiskConfig
+from src.market_hours import trading_day_start_utc
 from src.strategies.base import Action, Signal
 from src.trade_log import TradeLog
 
@@ -36,13 +37,19 @@ class RiskManager:
         signal: Signal,
         account_info: dict,
         open_positions: list[dict],
+        pending_buy_symbols: set[str] | frozenset[str] = frozenset(),
     ) -> RiskCheckResult:
         """Run all risk checks on a signal.
 
         Args:
             signal: The strategy-generated signal.
-            account_info: From client.get_account_info().
+            account_info: From client.get_account_info(), with cash already
+                reduced by anything this run has committed.
             open_positions: From client.get_positions().
+            pending_buy_symbols: Symbols with a buy submitted but not yet
+                filled, at the broker or earlier in this run. A market order
+                is not a position until it fills, so without these the cap
+                sees the same count for every buy in a burst.
 
         Returns:
             RiskCheckResult with verdict, approved qty, or rejection reasons.
@@ -63,13 +70,31 @@ class RiskManager:
                 f"{self.config.daily_loss_limit_pct:.1%} today"
             )
 
-        # Check 3: Max open positions (only for BUY)
+        # Check 3: Max open positions, counting buys still in flight (BUY only)
         if signal.action == Action.BUY:
-            if len(open_positions) >= self.config.max_open_positions:
+            held = {p["symbol"] for p in open_positions}
+            pending = set(pending_buy_symbols) - held
+            occupied = len(held) + len(pending)
+            if occupied >= self.config.max_open_positions:
                 reasons.append(
                     f"Max open positions reached: "
-                    f"{len(open_positions)}/{self.config.max_open_positions}"
+                    f"{occupied}/{self.config.max_open_positions}"
+                    + (f" including {len(pending)} pending" if pending else "")
                 )
+            if signal.symbol in pending_buy_symbols:
+                reasons.append(f"Buy already pending for {signal.symbol}")
+
+        # Check 3b: Cooldown — no buying back a symbol sold earlier today
+        if signal.action == Action.BUY and self.trade_log.exited_since(
+            signal.symbol, trading_day_start_utc()
+        ):
+            reasons.append(f"Cooldown: {signal.symbol} was sold earlier today")
+
+        # Check 3c: No margin — the account's own cash only
+        if signal.action == Action.BUY and account_info["cash"] <= 0:
+            reasons.append(
+                f"No cash available (${account_info['cash']:,.2f}); no margin"
+            )
 
         # Check 4: Concentration limit (replaces old duplicate-position block)
         if signal.action == Action.BUY:
@@ -169,7 +194,8 @@ class RiskManager:
                 remaining = concentration_cap - existing
                 max_dollars = min(max_dollars, max(remaining, 0))
 
-        available = min(max_dollars, account_info["cash"])
+        # Never size against borrowed money: negative cash means margin.
+        available = min(max_dollars, max(account_info["cash"], 0.0))
         qty = int(available // price)
 
         return qty, available
