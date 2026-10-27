@@ -146,6 +146,15 @@ class TestThroughTheScan:
         """Fail closed: buying blind is how the cap was breached."""
         assert scan(open_buys_error=True) == []
 
+    def test_a_full_stack_skips_the_scan(self, scan, monkeypatch):
+        """No bars, no signals, so no rejection row per signal per minute."""
+
+        def no_bars(syms, days):
+            raise AssertionError("a full stack fetched bars")
+
+        monkeypatch.setattr(scheduler_mod, "fetch_daily_bars_batch", no_bars)
+        assert scan(open_buys={f"X{i:02d}" for i in range(12)}) == []
+
     def test_cash_committed_earlier_in_the_run_is_not_spent_twice(self, scan):
         """$10K cash against a $50K per-buy limit (5% of $1M): the first buy
         takes all $10K, and every later buy in the run is refused."""

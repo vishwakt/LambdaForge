@@ -211,6 +211,31 @@ class TradingEngine:
 
     def _scan_for_entries(self, trading_client):
         """Scan watchlist for new BUY signals."""
+        # One snapshot per run, then track what this run commits. Re-reading
+        # positions per signal doesn't help: an order that hasn't filled is
+        # not a position, so a burst of buys all saw the same count.
+        try:
+            account_info = get_account_info(trading_client)
+            open_positions = get_positions(trading_client)
+            pending = set(get_open_buy_symbols(trading_client))
+        except Exception as e:
+            logger.error("Can't see open orders, skipping entries this run: %s", e)
+            return
+        committed_cash = 0.0
+        held = {p["symbol"] for p in open_positions}
+
+        # A full stack can't buy, so skip the bars and the signals. Every BUY
+        # would be refused by the position cap, and those refusals were
+        # almost every rejection row: one per signal, every minute.
+        occupied = len(held | pending)
+        if occupied >= self.config.risk.max_open_positions:
+            logger.info(
+                "Entry scan skipped: %d/%d positions held or pending",
+                occupied,
+                self.config.risk.max_open_positions,
+            )
+            return
+
         symbols = self.config.scheduler.symbols
         # Ensure SPY is fetched for relative_strength strategy
         fetch_symbols = list(symbols)
@@ -225,19 +250,6 @@ class TradingEngine:
             return
 
         spy_bars = all_bars.get("SPY")
-
-        # One snapshot per run, then track what this run commits. Re-reading
-        # positions per signal doesn't help: an order that hasn't filled is
-        # not a position, so a burst of buys all saw the same count.
-        try:
-            account_info = get_account_info(trading_client)
-            open_positions = get_positions(trading_client)
-            pending = set(get_open_buy_symbols(trading_client))
-        except Exception as e:
-            logger.error("Can't see open orders, skipping entries this run: %s", e)
-            return
-        committed_cash = 0.0
-        held = {p["symbol"] for p in open_positions}
 
         for symbol in symbols:
             # One position per symbol unless pyramiding is on: a symbol the
