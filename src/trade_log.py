@@ -210,18 +210,19 @@ class TradeLog:
         finally:
             conn.close()
 
-    def close_lot_reconciled(self, trade_id: int, reason: str):
+    def close_lot_reconciled(self, trade_id: int, reason: str) -> int:
         """Close a lot the broker no longer holds, without inventing a trade.
 
         Writes an exit row with status ``reconciled`` and no order id or P&L,
-        so the lot stops looking open and statistics are unaffected.
+        so the lot stops looking open and statistics are unaffected. Returns
+        the exit row's ID.
         """
         conn = self._get_conn()
         try:
             lot = conn.execute(
                 "SELECT * FROM trades WHERE id = ?", (trade_id,)
             ).fetchone()
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT INTO trades
                    (timestamp, symbol, side, qty, order_type, order_id, status,
                     strategy, reason, parent_trade_id)
@@ -236,6 +237,7 @@ class TradeLog:
                 ),
             )
             conn.commit()
+            return cursor.lastrowid
         finally:
             conn.close()
 
@@ -452,11 +454,11 @@ class TradeLog:
         action: str,
         confidence: float | None,
         rejection_reason: str,
-    ):
-        """Log a signal that was rejected by risk management."""
+    ) -> int:
+        """Log a signal that was rejected by risk management. Returns its ID."""
         conn = self._get_conn()
         try:
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT INTO risk_rejections
                    (timestamp, symbol, strategy, action, confidence, rejection_reason)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -470,6 +472,18 @@ class TradeLog:
                 ),
             )
             conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def get_rejection_row(self, rejection_id: int) -> dict | None:
+        """One risk_rejections row by id."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM risk_rejections WHERE id = ?", (rejection_id,)
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 
