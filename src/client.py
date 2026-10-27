@@ -217,6 +217,23 @@ def get_open_buy_symbols(trading_client: TradingClient) -> set[str]:
     return {o.symbol for o in orders}
 
 
+def get_orders_since(trading_client: TradingClient, since) -> list[dict]:
+    """Every order submitted at or after *since*, in any state."""
+    orders = trading_client.get_orders(
+        GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=500)
+    )
+    return [
+        {
+            "order_id": str(o.id),
+            "symbol": o.symbol,
+            "side": o.side.value if o.side else str(o.side),
+            "status": o.status.value if o.status else str(o.status),
+            "filled_qty": float(o.filled_qty or 0),
+        }
+        for o in orders
+    ]
+
+
 def get_market_clock(trading_client: TradingClient):
     """Return Alpaca's market clock, or None if the call fails.
 

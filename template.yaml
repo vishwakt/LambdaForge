@@ -35,6 +35,9 @@ Conditions:
   # The Telegram ops function controls every stack, so it is deployed once,
   # alongside the paper stack.
   IsPaper: !Equals [!Ref Environment, paper]
+  # Stack 1 (paper) is archived, not migrated: its Alpaca keys no longer
+  # work, so it gets no table (docs/DYNAMODB-PLAN.md, 7.5).
+  HasTradesTable: !Not [!Equals [!Ref Environment, paper]]
 
 Globals:
   Function:
@@ -55,6 +58,11 @@ Globals:
         NOTIFICATION_EMAIL: !If [HasNotificationEmail, !Ref NotificationEmail, ""]
         SSM_PREFIX: !FindInMap [EnvConfig, !Ref Environment, SSMPrefix]
         NOTIFY_FREQUENCY: hourly
+        # Used only once the store parameter says shadow or dynamodb. Stack 1
+        # has no table; its store stays sqlite, so the name is never used.
+        TRADES_TABLE: !Sub
+          - "stock-trader${BucketSuffix}"
+          - BucketSuffix: !FindInMap [EnvConfig, !Ref Environment, BucketSuffix]
 
 Resources:
   # S3 bucket for persistent trades.db storage
@@ -92,6 +100,75 @@ Resources:
               - StorageClass: DEEP_ARCHIVE
                 TransitionInDays: 0
             ExpirationInDays: 2555
+          # The trades.db frozen at the DynamoDB cutover stays readable for
+          # 90 days (a rollback rebuilds trades.db from it), then archives.
+          - Id: frozen-trades-db-to-deep-archive
+            Status: Enabled
+            Prefix: frozen/
+            Transitions:
+              - StorageClass: DEEP_ARCHIVE
+                TransitionInDays: 90
+      Tags:
+        - Key: Project
+          Value: stock-trading-bot
+        - Key: Environment
+          Value: !Ref Environment
+
+  # The trade store once the store parameter says dynamodb (src/store.py).
+  # One item per trades.db row; see src/dynamo_store.py for the keys.
+  TradesTable:
+    Type: AWS::DynamoDB::Table
+    Condition: HasTradesTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub
+        - "stock-trader${BucketSuffix}"
+        - BucketSuffix: !FindInMap [EnvConfig, !Ref Environment, BucketSuffix]
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # Trades in time order
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # Sparse: only buys still pending or open
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
       Tags:
         - Key: Project
           Value: stock-trading-bot
@@ -179,6 +256,27 @@ Resources:
                   - !Sub
                     - "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SSMPrefix}*"
                     - SSMPrefix: !FindInMap [EnvConfig, !Ref Environment, SSMPrefix]
+        - !If
+          - HasTradesTable
+          - PolicyName: DynamoDBTradesTable
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:UpdateItem
+                    - dynamodb:ConditionCheckItem
+                    - dynamodb:Query
+                    - dynamodb:Scan
+                    - dynamodb:BatchWriteItem
+                    - dynamodb:DescribeTable
+                    - dynamodb:CreateBackup
+                  Resource:
+                    - !GetAtt TradesTable.Arn
+                    - !Sub "${TradesTable.Arn}/index/*"
+          - !Ref AWS::NoValue
 
   # Lambda Function: Daily Scan (runs at 09:30 ET weekdays — market open)
   DailyScanFunction:
@@ -320,6 +418,25 @@ Resources:
       DockerContext: .
       Dockerfile: Dockerfile
 
+  # Lambda Function: Store migration (invoked by the migration workflow or by
+  # hand; no schedule). Modes are in src/migrate.py.
+  MigrateFunction:
+    Type: AWS::Serverless::Function
+    Condition: HasTradesTable
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-migrate"
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - handler.migrate_handler
+      Role: !GetAtt TradingBotRole.Arn
+      Timeout: 900
+      MemorySize: 1024
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
   # --- Telegram ops (paper stack only; controls all three stacks) ---
 
   TelegramOpsRole:
@@ -400,3 +517,11 @@ Outputs:
   KillSwitchFunctionName:
     Description: Kill Switch Lambda function name (invoke with aws lambda invoke)
     Value: !Ref KillSwitchFunction
+  TradesTableName:
+    Condition: HasTradesTable
+    Description: DynamoDB trade store
+    Value: !Ref TradesTable
+  MigrateFunctionName:
+    Condition: HasTradesTable
+    Description: Store migration Lambda (see src/migrate.py)
+    Value: !Ref MigrateFunction

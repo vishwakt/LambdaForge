@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from src import scheduler as scheduler_mod
-from src.config import AppConfig
 from src.scheduler import TradingEngine
 from src.strategies.base import Action, Signal
 
@@ -26,10 +25,8 @@ def says(action):
 
 
 @pytest.fixture
-def engine(tmp_path, monkeypatch):
-    engine = TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+def engine(engine_config, monkeypatch):
+    engine = TradingEngine(engine_config)
     closes = np.linspace(100, 101, 60)
     bars = pd.DataFrame(
         {"open": closes, "high": closes, "low": closes, "close": closes, "volume": 1e6}

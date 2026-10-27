@@ -23,6 +23,11 @@ def _csv_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _word(value: str) -> str:
+    """A one-word setting, e.g. "DynamoDB " -> "dynamodb"."""
+    return value.strip().lower()
+
+
 def _flag(value: str) -> bool:
     """Parse an SSM String flag: "true", "yes", "on" or "1" turn it on."""
     return value.strip().lower() in ("true", "yes", "on", "1")
@@ -42,6 +47,8 @@ _PARAM_MAP = {
     "allow_pyramiding": ("risk", "allow_pyramiding", _flag),
     "monitor_interval": ("scheduler", "monitor_interval_min", int),
     "notify_frequency": ("app", "notify_frequency", str),
+    # Which trade store runs use: sqlite, shadow or dynamodb (src/store.py).
+    "store": ("app", "store", _word),
     # Per-stack strategy selection, e.g. "rsi_macd,ema_crossover" — lets the
     # experimental stack run a different set than the baked-in config.json.
     "strategies": ("scheduler", "strategies", _csv_list),

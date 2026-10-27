@@ -13,16 +13,13 @@ from datetime import datetime, timezone
 import pytest
 
 from src import scheduler as scheduler_mod
-from src.config import AppConfig
 from src.scheduler import TradingEngine
 from src.strategies.base import Action, Signal
 
 
 @pytest.fixture
-def engine(tmp_path):
-    return TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+def engine(engine_config):
+    return TradingEngine(engine_config)
 
 
 def log_lot(engine, qty, symbol="ARM", stop_loss=300.0, fill_price=310.0, filled=True):

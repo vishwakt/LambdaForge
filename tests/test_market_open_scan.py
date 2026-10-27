@@ -19,10 +19,8 @@ from src.scheduler import TradingEngine
 
 
 @pytest.fixture
-def engine(tmp_path, monkeypatch):
-    engine = TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+def engine(engine_config, monkeypatch):
+    engine = TradingEngine(engine_config)
     monkeypatch.setattr(scheduler_mod, "get_trading_client", lambda paper: None)
     monkeypatch.setattr(scheduler_mod, "get_positions", lambda c: [])
     return engine
@@ -96,6 +94,8 @@ class TestMonitorRecordsTheOpen:
 
 
 class FakeEngine:
+    config = AppConfig()
+
     def __getattr__(self, name):
         return lambda *a, **k: None
 
@@ -113,9 +113,10 @@ class FakeEngine:
 def test_only_handlers_that_write_upload_trades_db(handler, uploads, monkeypatch):
     uploaded = []
     monkeypatch.setattr(handlers, "_get_engine", FakeEngine)
-    monkeypatch.setattr(handlers, "_sync_db_to_s3", lambda: uploaded.append(1))
+    monkeypatch.setattr(handlers, "_sync_db_to_s3", lambda *a: uploaded.append(1))
     monkeypatch.setattr(handlers, "_market_open", lambda: True)
     monkeypatch.setattr(handlers, "_check_and_enforce_kill_switch", lambda: False)
+    monkeypatch.setattr(handlers, "_archive_audit_tables", lambda engine: None)
 
     handler({}, None)
 

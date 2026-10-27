@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 import pytest
 
 from src import scheduler as scheduler_mod
-from src.config import AppConfig
 from src.scheduler import TradingEngine, _manages_own_exits
 
 
@@ -26,10 +25,8 @@ class NormalStrategy:
 
 
 @pytest.fixture
-def engine(tmp_path):
-    return TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+def engine(engine_config):
+    return TradingEngine(engine_config)
 
 
 @pytest.fixture

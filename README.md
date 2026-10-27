@@ -208,6 +208,7 @@ aws ssm put-parameter --name "/stock-bot/trailing_stop_pct" --value "0.03" --typ
 | `allow_pyramiding` | `false` | Buy more of a symbol already held, up to `max_concentration` |
 | `monitor_interval` | `1` | MonitorStops interval in minutes |
 | `notify_frequency` | `hourly` | `realtime`, `hourly`, or `daily` |
+| `store` | `sqlite` | Trade store: `sqlite` (trades.db on S3), `shadow` (both, trades.db primary), or `dynamodb`. Switched by the migration workflow; see [docs/DYNAMODB-PLAN.md](docs/DYNAMODB-PLAN.md) |
 | `kill-switch` | `alive` | Set to `kill` to halt all trading immediately |
 
 ---

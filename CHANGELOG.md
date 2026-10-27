@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **DynamoDB trade store, behind a switch** — trades.db is downloaded from
+  S3 and uploaded back on every run, so two Lambdas running at once erased
+  each other's writes. A per-stack DynamoDB table now holds the same rows
+  item by item, and the `store` parameter picks `sqlite`, `shadow` (both,
+  trades.db the store of record, every write repeated on the table) or
+  `dynamodb`. Recording an exit and closing its lot is one transaction, and
+  the table refuses a stop lower than the one it holds. `dynamodb` refuses a
+  table that was never migrated into, since a bot with no open lots has no
+  stops. Nothing changes until `store` is set. ([#PR])
+- **Migration that runs itself** — a `MigrateFunction` per stack copies
+  trades.db in, compares the two row by row (trades, open lots, P&L by
+  strategy, snapshots, rejections), cuts over, checks health and rolls back.
+  The `DynamoDB migration` workflow runs each step on schedule, Bot 2
+  before live-config. Every step refuses the wrong starting point, so a
+  repeated or late run is harmless, and a failed check fails the job.
+  ([#PR])
 - **Strategies can own their exits (`uses_trailing_stop = False`)** — the
   engine ratchets every position's stop to the tighter of a percentage and an
   ATR stop, without asking the strategy. For a strategy whose exits are fully
@@ -219,6 +235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#72]: https://github.com/vishwakt/LambdaForge/pull/72
 [#77]: https://github.com/vishwakt/LambdaForge/pull/77
 [#80]: https://github.com/vishwakt/LambdaForge/pull/80
+[#PR]: https://github.com/vishwakt/LambdaForge/pull/PR
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

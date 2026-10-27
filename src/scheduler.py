@@ -28,9 +28,9 @@ from src.data_fetcher import fetch_daily_bars, fetch_daily_bars_batch
 from src.market_hours import is_quote_fresh
 from src.notifier import get_notifier
 from src.risk import RiskManager, RiskVerdict
+from src.store import make_trade_log
 from src.strategies import STRATEGIES
 from src.strategies.base import Action, Signal
-from src.trade_log import TradeLog
 
 logger = logging.getLogger("stock-trader")
 
@@ -78,7 +78,7 @@ class TradingEngine:
     def __init__(self, config: AppConfig | None = None):
         self.config = config or load_config()
         self.paper = self.config.trading_mode == "paper"
-        self.trade_log = TradeLog(self.config.db_path)
+        self.trade_log = make_trade_log(self.config)
         self.risk_manager = RiskManager(self.config.risk, self.trade_log)
         self.notifier = get_notifier(
             self.config.notifier,
@@ -633,7 +633,13 @@ class TradingEngine:
         current_trailing = trade.get("trailing_stop") or trade["stop_loss"]
         new_trailing = max(new_trailing, current_trailing)
 
-        self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
+        # Written only when it moves: rewriting every open lot on every run
+        # was most of the store's writes.
+        if (new_trailing, new_hwm) != (
+            trade.get("trailing_stop"),
+            trade.get("high_water_mark"),
+        ):
+            self.trade_log.update_trailing_stop(trade["id"], new_trailing, new_hwm)
         return new_trailing
 
     def _check_trailing_stops(self, trading_client, data_client):

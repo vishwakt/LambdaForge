@@ -117,3 +117,18 @@ def any_trade_log(request, tmp_path):
     if request.param == "sqlite":
         return TradeLog(str(tmp_path / "trades.db"))
     return request.getfixturevalue("dynamo_trade_log")
+
+
+@pytest.fixture(params=["sqlite", "dynamodb"])
+def engine_config(request, tmp_path):
+    """An engine config for each store, so engine tests run against both."""
+    from src.config import AppConfig
+
+    config = AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
+    if request.param == "dynamodb":
+        resource = request.getfixturevalue("dynamo_table")
+        resource.Table("stock-trader-test").put_item(
+            Item={"PK": "META", "SK": "MIGRATION"}
+        )
+        config.store, config.table_name = "dynamodb", "stock-trader-test"
+    return config
