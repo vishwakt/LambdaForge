@@ -113,3 +113,23 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: ${{ needs.plan.outputs.mode }} on live-config
         run: scripts/migration_step.sh stock-trading-bot-live "${{ needs.plan.outputs.mode }}"
+
+  # Stack 1 isn't migrated: its Alpaca keys no longer work, so it can't be
+  # reconciled (docs/DYNAMODB-PLAN.md, 7.5). At cutover its trades.db is
+  # frozen next to the others and left at that.
+  stack1:
+    needs: plan
+    if: needs.plan.outputs.mode == 'cutover' && needs.plan.outputs.bot2 == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Freeze stack 1's trades.db
+        run: |
+          bucket="stock-trader-db-$(aws sts get-caller-identity --query Account --output text)"
+          aws s3 cp "s3://${bucket}/trades.db" "s3://${bucket}/frozen/trades-final-stock-bot-$(date -u +%F).db"
