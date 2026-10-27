@@ -72,6 +72,7 @@ class TestExecuteExitDedup:
         engine = self._engine(tmp_path)
         placed = []
         monkeypatch.setattr(scheduler_mod, "has_open_sell_order", lambda c, s: False)
+        monkeypatch.setattr(scheduler_mod, "get_position_qty", lambda c, s: 10.0)
         monkeypatch.setattr(
             scheduler_mod,
             "place_market_order",

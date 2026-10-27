@@ -131,32 +131,41 @@ def positions(bot: Bot) -> list[dict]:
 # --- Margin ---
 
 
+# Raw REST calls: alpaca-py's AccountConfiguration model requires dtbp_check
+# and pdt_check, which paper accounts don't return, so the typed methods fail.
+_ACCOUNT_CONFIG = "/account/configurations"
+
+
 def margin(bot: Bot) -> dict:
-    """The account's margin cap and what it is using now.
+    """The account's margin cap and shorting setting, and what it is using now.
 
     ``max_margin_multiplier`` is an account configuration in the Trading API;
     the web dashboard doesn't show it. ``"1"`` means cash only.
     """
     client = _trading_client(bot, _stack_params(bot))
-    config = client.get_account_configurations()
-    account = client.get_account()
+    config = client.get(_ACCOUNT_CONFIG)
+    account = client.get("/account")
     return {
         "bot": bot.name,
-        "max_margin_multiplier": config.max_margin_multiplier,
-        "multiplier": account.multiplier,
-        "cash": float(account.cash),
-        "buying_power": float(account.buying_power),
+        "max_margin_multiplier": config.get("max_margin_multiplier"),
+        "no_shorting": config.get("no_shorting"),
+        "multiplier": account.get("multiplier"),
+        "cash": float(account["cash"]),
+        "buying_power": float(account["buying_power"]),
     }
+
+
+def set_account_config(bot: Bot, **changes) -> dict:
+    """Patch account configuration fields, e.g. ``max_margin_multiplier="1"``."""
+    client = _trading_client(bot, _stack_params(bot))
+    applied = client.patch(_ACCOUNT_CONFIG, changes)
+    logger.info("%s: account configuration %s", bot.name, changes)
+    return applied
 
 
 def set_max_margin_multiplier(bot: Bot, value: str = "1") -> str:
     """Cap the account's margin. At ``"1"`` Alpaca rejects orders beyond cash."""
-    client = _trading_client(bot, _stack_params(bot))
-    config = client.get_account_configurations()
-    config.max_margin_multiplier = value
-    applied = client.set_account_configurations(config).max_margin_multiplier
-    logger.info("%s: max_margin_multiplier set to %s", bot.name, applied)
-    return applied
+    return set_account_config(bot, max_margin_multiplier=value)["max_margin_multiplier"]
 
 
 # --- Strategy selection ---

@@ -231,6 +231,21 @@ def get_market_clock(trading_client: TradingClient):
         return None
 
 
+def get_position_qty(trading_client: TradingClient, symbol: str) -> float:
+    """Shares held right now: negative if short, 0 if there is no position.
+
+    Read immediately before every sell. A positions list fetched earlier in
+    the run is stale once a sell has filled, and selling from it again is
+    how the bot went short (ARM, 2026-09-24).
+    """
+    try:
+        return float(trading_client.get_open_position(symbol).qty)
+    except APIError as e:
+        if e.status_code == 404:
+            return 0.0
+        raise
+
+
 def has_open_sell_order(trading_client: TradingClient, symbol: str) -> bool:
     """True if a sell order for *symbol* is already open at the broker.
 

@@ -116,6 +116,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Exits can no longer sell short, and stop alerts mean a sale happened** —
+  on 2026-09-24 a stop fired for one ARM lot, the exit sold the whole
+  39-share position, and the loop moved to the next ARM lot and sold 39 more
+  from a positions list fetched before the first sale. Bot 2 ended up short
+  UTI, ARM, DDOG and CVX, and live-config short RS. Every run after that
+  re-fired the stop on lots that no longer existed, emailed, and failed with
+  "qty must be > 0", about five emails a minute for a month. Exits now sell
+  the quantity the broker holds at that moment and refuse if it isn't long;
+  each symbol gets at most one exit per run; the stop alert is sent only
+  after a sell is placed; and lots the broker no longer holds are closed as
+  `reconciled`, with no order and no P&L. ([#77])
 - **Stops no longer fire on a stale bid, and don't re-buy the same day** —
   stops were checked against the best bid on the free IEX feed, which is
   often far below the market: AXTI's stop fired on a $71.00 bid while it
@@ -184,6 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#63]: https://github.com/vishwakt/LambdaForge/pull/63
 [#64]: https://github.com/vishwakt/LambdaForge/pull/64
 [#72]: https://github.com/vishwakt/LambdaForge/pull/72
+[#77]: https://github.com/vishwakt/LambdaForge/pull/77
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
