@@ -29,7 +29,7 @@ The design below was simplified to get the move done in one week, with every ste
 |---|---|---|
 | Tue Oct 27, morning | You | Add the `DynamoDBTradesTables` statement in `iam-deployer-policy.template.json` to the deployer user and the GitHub deploy role |
 | Tue Oct 27, 1:15 PM | You | Merge #80 and run Deploy Live |
-| Wed Oct 28, 1:15 PM | You | Merge this PR and run Deploy Live. The tables are created and nothing else changes: `store` is unset, so `sqlite` |
+| Wed Oct 28, 1:15 PM | You | Merge #81 and run Deploy Live. The tables are created and nothing else changes: `store` is unset, so `sqlite` |
 | Thu Oct 29, 1:45 PM | `shadow` | trades.db is copied into the table and verified exactly, then `store=shadow` |
 | Fri Oct 30, all day | | trades.db stays the store of record; every write is repeated on the table through its own write path |
 | Fri Oct 30, 1:40 PM | `cutover` | The day's writes are compared with trades.db (write times by presence only). If clean: trades.db is frozen to `frozen/`, copied in once more, verified exactly, the table is backed up, then `store=dynamodb`. Bot 2 first; live-config only if Bot 2 passed |
