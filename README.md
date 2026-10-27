@@ -97,7 +97,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 | 📊 **Multi-stack** | Paper and live run as independent stacks — no shared state |
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
 | ⚙️ **Zero-redeploy config** | Tune risk params and flip the kill switch via SSM — no deploy needed |
-| 🔒 **Buy deduplication** | Prevents duplicate orders while still allowing pyramiding into winning positions |
+| 🔒 **One position per symbol** | A symbol already held, or already being bought, isn't bought again. Set `allow_pyramiding` to add to positions instead, up to the concentration cap |
 | 🕐 **Market hours guard** | Checks Alpaca's market clock on every run — skips holidays, half-days, and anything outside 09:30–16:00 ET (weekday/time heuristic as fallback) |
 | 🏷️ **Environment tagging** | Email subjects prefixed `[PAPER]`, `[LIVE]`, `[BOT-2]` for easy inbox filtering |
 
@@ -181,6 +181,8 @@ All strategies implement a common interface — they receive historical OHLCV ba
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
 
 > **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
+>
+> **Strategy exits** come only from the strategy that opened the position, even after it is switched off for new entries. A position the bot has no record of buying can be exited by any enabled strategy.
 
 Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md). A strategy is one class with one method; the starter template is about 50 lines, and the built-in strategies run 140 to 220 lines, most of it spelling out the reason behind each signal.
 
@@ -203,6 +205,7 @@ aws ssm put-parameter --name "/stock-bot/trailing_stop_pct" --value "0.03" --typ
 | `max_concentration` | `0.15` | Max portfolio fraction per symbol |
 | `max_daily_loss` | `0.02` | Daily loss limit — stops trading if hit |
 | `min_confidence` | `0.5` | Minimum signal confidence to trade |
+| `allow_pyramiding` | `false` | Buy more of a symbol already held, up to `max_concentration` |
 | `monitor_interval` | `1` | MonitorStops interval in minutes |
 | `notify_frequency` | `hourly` | `realtime`, `hourly`, or `daily` |
 | `kill-switch` | `alive` | Set to `kill` to halt all trading immediately |
@@ -312,8 +315,8 @@ Six Lambda functions per stack — five on EventBridge schedules, plus a manuall
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
-| `DailyScan` | 09:30 ET weekdays | Full scan: exits, entries, risk checks |
-| `MonitorStops` | Every 1 min (market hours) | Trailing stop enforcement + opportunistic entries |
+| `DailyScan` | 09:30 ET weekdays | Market-open summary email; places no orders |
+| `MonitorStops` | Every 1 min (market hours) | All trading: trailing stops, strategy exits, entries, risk checks; records the open snapshot |
 | `EodSnapshot` | 15:55 ET weekdays | End-of-day P&L + benchmark comparison |
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |

@@ -109,7 +109,8 @@ Notes:
 
 1. A `allow_pyramiding` setting, default off: don't buy a symbol the stack already holds. The 15% cap stays as a backstop.
 2. Exits come only from the strategy that opened the lot, plus stops and the kill switch.
-3. Stop the 9:30 DailyScan and the monitor from both buying at the open. The monitor already scans for entries every minute, so DailyScan keeps the snapshot and summary and stops placing orders.
+3. Stop the 9:30 DailyScan and the monitor from both buying at the open. The monitor already scans for entries every minute, so DailyScan keeps the summary and stops placing orders.
+   - As built: the monitor's first run of the day writes the open snapshot, and DailyScan writes nothing and doesn't upload `trades.db`, so only one Lambda writes it at 9:30. The hourly and weekly digests only read, so they stop uploading too. The EOD snapshot at 15:55 still overlaps a monitor run until the DynamoDB cutover.
 
 ---
 

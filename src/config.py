@@ -18,6 +18,7 @@ class RiskConfig:
     min_confidence: float = 0.5  # Minimum signal confidence to act
     trailing_stop_pct: float = 0.05  # 5% trailing stop (percentage mode)
     max_concentration_pct: float = 0.15  # Max 15% of portfolio in one symbol
+    allow_pyramiding: bool = False  # Buy more of a symbol already held
 
 
 @dataclass

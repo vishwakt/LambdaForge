@@ -1,6 +1,7 @@
 """AWS Lambda handler entry points.
 
-Each handler syncs trades.db from S3 before running and uploads it back after.
+Each handler syncs trades.db from S3 before running. Only the ones that write
+(the monitor, the EOD snapshot, the kill switch) upload it back after.
 EventBridge rules trigger these on schedule.
 
 Trading handlers check the kill switch SSM parameter before executing.
@@ -167,18 +168,19 @@ def _check_and_enforce_kill_switch() -> bool:
 
 
 def daily_scan_handler(event, context):
-    """EventBridge trigger: daily market scan at 09:30 ET."""
+    """EventBridge trigger: market-open summary at 09:30 ET.
+
+    Read-only, so it doesn't upload trades.db: uploading the copy it
+    downloaded would erase whatever the monitor wrote in the meantime.
+    """
     if not _market_open():
         logger.info("Market closed — skipping daily scan")
         return {"statusCode": 200, "body": "Market closed — skipped"}
     if _check_and_enforce_kill_switch():
         return {"statusCode": 200, "body": "Kill switch active — liquidated"}
     engine = _get_engine()
-    try:
-        engine.run_daily_scan()
-        return {"statusCode": 200, "body": "Daily scan complete"}
-    finally:
-        _sync_db_to_s3()
+    engine.run_daily_scan()
+    return {"statusCode": 200, "body": "Daily scan complete"}
 
 
 def monitor_stops_handler(event, context):
@@ -221,13 +223,13 @@ def _archive_audit_tables():
 
 
 def weekly_digest_handler(event, context):
-    """EventBridge trigger: weekly performance digest on Fridays."""
+    """EventBridge trigger: weekly performance digest on Fridays.
+
+    Read-only, so it doesn't upload trades.db (see daily_scan_handler).
+    """
     engine = _get_engine()
-    try:
-        engine.generate_weekly_report()
-        return {"statusCode": 200, "body": "Weekly digest complete"}
-    finally:
-        _sync_db_to_s3()
+    engine.generate_weekly_report()
+    return {"statusCode": 200, "body": "Weekly digest complete"}
 
 
 def hourly_digest_handler(event, context):
@@ -235,13 +237,11 @@ def hourly_digest_handler(event, context):
 
     Queries trades and rejections from the last hour and sends
     consolidated email summaries. Only sends if there was activity.
+    Read-only, so it doesn't upload trades.db (see daily_scan_handler).
     """
     engine = _get_engine()
-    try:
-        engine.generate_hourly_digest()
-        return {"statusCode": 200, "body": "Hourly digest complete"}
-    finally:
-        _sync_db_to_s3()
+    engine.generate_hourly_digest()
+    return {"statusCode": 200, "body": "Hourly digest complete"}
 
 
 def kill_switch_handler(event, context):

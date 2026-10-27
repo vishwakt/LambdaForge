@@ -89,7 +89,14 @@ class TradingEngine:
         logger.info("TradingEngine initialized in %s mode", mode_label)
 
     def run_daily_scan(self):
-        """Full daily trading loop. Called by scheduler or manually."""
+        """Market-open summary. Reads only: it places no orders and writes nothing.
+
+        The monitor handles exits and entries every minute, so a 9:30 scan
+        that also traded bought the same symbols as the monitor's 9:30 run.
+        Both also downloaded trades.db and uploaded it back, and whichever
+        upload landed last erased the other's writes. The open snapshot is
+        now written by the monitor's first run of the day.
+        """
         logger.info("=" * 60)
         logger.info("DAILY SCAN STARTED at %s", datetime.now().isoformat())
         logger.info("=" * 60)
@@ -105,23 +112,6 @@ class TradingEngine:
             len(open_positions),
         )
 
-        # Save daily snapshot (start of day)
-        self.trade_log.save_daily_snapshot(
-            equity=account_info["equity"],
-            cash=account_info["cash"],
-            portfolio_value=account_info["portfolio_value"],
-            open_positions=len(open_positions),
-        )
-
-        # Phase 1: Check existing positions for exit signals
-        self._check_exit_signals(trading_client, open_positions)
-
-        # Phase 2: Scan for new entry signals
-        self._scan_for_entries(trading_client)
-
-        # Daily summary notification
-        account_info = get_account_info(trading_client)
-        open_positions = get_positions(trading_client)
         prev = self.trade_log.get_previous_snapshot()
         daily_pnl = None
         if prev:
@@ -156,9 +146,24 @@ class TradingEngine:
         logger.info("DAILY SCAN COMPLETE")
 
     def _check_exit_signals(self, trading_client, open_positions):
-        """Check if any open position should be exited based on strategy."""
+        """Exit a position when a strategy that opened it says SELL.
+
+        Only the strategy that bought a lot decides its exit, whether or not
+        it is still enabled for new entries; stops and the kill switch are
+        separate. A position with no open lot on record (bought by hand, or
+        a lot the log lost), or whose strategy is no longer registered,
+        falls back to the enabled strategies, so it is never left without
+        an exit. A position built from several
+        strategies' lots is sold whole when any one of them says SELL.
+        """
+        # The bot is long-only: a short isn't a position it exits.
+        open_positions = [p for p in open_positions if p["qty"] > 0]
         if not open_positions:
             return
+
+        openers: dict[str, set[str]] = {}
+        for lot in self.trade_log.get_open_trades():
+            openers.setdefault(lot["symbol"], set()).add(lot["strategy"])
 
         symbols = [pos["symbol"] for pos in open_positions]
         # Ensure SPY is fetched for relative_strength strategy
@@ -182,7 +187,11 @@ class TradingEngine:
                 logger.error("No bar data for %s, skipping exit check", symbol)
                 continue
 
-            for strat_name in self.config.scheduler.strategies:
+            exit_strategies = (
+                sorted(s for s in openers.get(symbol, ()) if s in STRATEGIES)
+                or self.config.scheduler.strategies
+            )
+            for strat_name in exit_strategies:
                 if strat_name not in STRATEGIES:
                     continue
                 strategy = STRATEGIES[strat_name]()
@@ -202,6 +211,31 @@ class TradingEngine:
 
     def _scan_for_entries(self, trading_client):
         """Scan watchlist for new BUY signals."""
+        # One snapshot per run, then track what this run commits. Re-reading
+        # positions per signal doesn't help: an order that hasn't filled is
+        # not a position, so a burst of buys all saw the same count.
+        try:
+            account_info = get_account_info(trading_client)
+            open_positions = get_positions(trading_client)
+            pending = set(get_open_buy_symbols(trading_client))
+        except Exception as e:
+            logger.error("Can't see open orders, skipping entries this run: %s", e)
+            return
+        committed_cash = 0.0
+        held = {p["symbol"] for p in open_positions}
+
+        # A full stack can't buy, so skip the bars and the signals. Every BUY
+        # would be refused by the position cap, and those refusals were
+        # almost every rejection row: one per signal, every minute.
+        occupied = len(held | pending)
+        if occupied >= self.config.risk.max_open_positions:
+            logger.info(
+                "Entry scan skipped: %d/%d positions held or pending",
+                occupied,
+                self.config.risk.max_open_positions,
+            )
+            return
+
         symbols = self.config.scheduler.symbols
         # Ensure SPY is fetched for relative_strength strategy
         fetch_symbols = list(symbols)
@@ -217,19 +251,14 @@ class TradingEngine:
 
         spy_bars = all_bars.get("SPY")
 
-        # One snapshot per run, then track what this run commits. Re-reading
-        # positions per signal doesn't help: an order that hasn't filled is
-        # not a position, so a burst of buys all saw the same count.
-        try:
-            account_info = get_account_info(trading_client)
-            open_positions = get_positions(trading_client)
-            pending = set(get_open_buy_symbols(trading_client))
-        except Exception as e:
-            logger.error("Can't see open orders, skipping entries this run: %s", e)
-            return
-        committed_cash = 0.0
-
         for symbol in symbols:
+            # One position per symbol unless pyramiding is on: a symbol the
+            # stack holds (long or short) or is already buying isn't a
+            # candidate. Skipped, not rejected, so it logs no rejection row.
+            if not self.config.risk.allow_pyramiding and (
+                symbol in held or symbol in pending
+            ):
+                continue
             bars = all_bars.get(symbol)
             if bars is None or bars.empty:
                 logger.error("No bar data for %s, skipping entry scan", symbol)
@@ -474,8 +503,10 @@ class TradingEngine:
         data_client = get_data_client(paper=self.paper)
         open_positions = get_positions(trading_client)
 
-        # Phase 0: Learn what the broker actually filled since last cycle,
-        # and close lots the broker no longer holds
+        # Phase 0: The day's first run records the open, before it trades.
+        # Then learn what the broker actually filled since last cycle, and
+        # close lots the broker no longer holds
+        self._save_open_snapshot(trading_client, open_positions)
         self._reconcile_buy_fills(trading_client)
         self._close_phantom_lots(trading_client)
 
@@ -491,6 +522,27 @@ class TradingEngine:
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
+
+    def _save_open_snapshot(self, trading_client, open_positions):
+        """Write the day's first snapshot, once, before the run trades.
+
+        The 15:55 snapshot overwrites the row; this one is what remains if
+        that run fails. It is written here rather than by the 9:30 scan so
+        only one Lambda writes trades.db at the open. A failure is logged and
+        never stops the run.
+        """
+        try:
+            if self.trade_log.has_snapshot_today():
+                return
+            account_info = get_account_info(trading_client)
+            self.trade_log.save_daily_snapshot(
+                equity=account_info["equity"],
+                cash=account_info["cash"],
+                portfolio_value=account_info["portfolio_value"],
+                open_positions=len(open_positions),
+            )
+        except Exception as e:
+            logger.error("Open snapshot failed (trading unaffected): %s", e)
 
     def _reconcile_buy_fills(self, trading_client):
         """Apply the broker's order state to buys we still have as 'submitted'.
