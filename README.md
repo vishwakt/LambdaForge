@@ -21,7 +21,7 @@
 
 ## What is LambdaForge?
 
-LambdaForge is a **production-grade, fully serverless algorithmic stock trading bot**. It runs entirely on AWS Lambda — no always-on server, no manual babysitting. EventBridge wakes it up on schedule, it scans a 200+ symbol watchlist, enforces 6-rule risk management, places trades through the Alpaca API, and emails you a digest. When the market closes, it goes back to sleep.
+LambdaForge is a **production-grade, fully serverless algorithmic stock trading bot**. It runs entirely on AWS Lambda — no always-on server, no manual babysitting. EventBridge wakes it up on schedule, it scans a 200+ symbol watchlist, enforces a set of risk rules on every buy, places trades through the Alpaca API, and emails you a digest. When the market closes, it goes back to sleep.
 
 **Paper trading is free on Alpaca, and AWS costs about $0.15/month per stack.** Everything that runs code stays inside AWS's always-free allowances; the few cents are storage.
 
@@ -34,7 +34,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
                     ┌──────────────▼──────────────────────┐
                     │        AWS Lambda (ARM64)           │
                     │  • Scans 200+ symbols               │
-                    │  • Runs 3 of 7 built-in strategies  │
+                    │  • Runs 3 of 8 built-in strategies  │
                     │  • Enforces 6 risk rules            │
                     │  • Places orders via Alpaca         │
                     │  • Sends email digest               │
@@ -91,8 +91,8 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 | Feature | Details |
 |---------|---------|
 | 🧠 **7 trading strategies** (3 enabled by default) | MACD, Bollinger Squeeze, Z-Score Mean Reversion (enabled); RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY (available via `config.json`) |
-| 🛡️ **6-rule risk manager** | Confidence gate, daily loss limit, max positions, concentration cap, stop-loss enforcement, dynamic position sizing |
-| 📈 **Trailing stop-loss** | Hybrid trailing stop — the tighter of 5% below the high-water mark or 2×ATR — re-evaluated every minute during market hours, never moves down |
+| 🛡️ **Risk manager** | Confidence gate, daily loss limit, max positions (counting buys that haven't filled yet), concentration cap, stop-loss enforcement, position sizing from cash only (no margin), and no re-buying a symbol sold earlier the same day |
+| 📈 **Trailing stop-loss** | Hybrid trailing stop — the tighter of 5% below the high-water mark or 2×ATR — re-evaluated every minute during market hours against the last trade price, never moves down. A stop fires when two consecutive runs agree, or at once if the price is more than 5% through it. Exits sell what the broker holds and never go short. |
 | 🔴 **Kill switch** | One command liquidates everything and halts trading instantly |
 | 📊 **Multi-stack** | Paper and live run as independent stacks — no shared state |
 | 📧 **Email digests** | Hourly trade summaries, daily P&L snapshots, weekly performance reports |
@@ -182,7 +182,7 @@ All strategies implement a common interface — they receive historical OHLCV ba
 
 > **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
 
-Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md) — it takes ~50 lines of code.
+Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md). A strategy is one class with one method; the starter template is about 50 lines, and the built-in strategies run 140 to 220 lines, most of it spelling out the reason behind each signal.
 
 ---
 
@@ -332,13 +332,13 @@ For the full architecture deep-dive including data flow diagrams, SQLite schema,
 python -m pytest tests/ -v
 ```
 
-175 tests covering market hours, buy deduplication and fill reconciliation, the Telegram ops bot, live SSM reconfiguration, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
+240+ tests covering market hours, the risk rules and exit safety, buy deduplication and fill reconciliation, the Telegram ops bot, live SSM reconfiguration, strategy signal generation, SSM caching, environment labelling, config defaults, trade statistics, and the weekly audit archive.
 
 ---
 
 ## 🤝 Contributing
 
-Pull requests welcome — especially new trading strategies. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full guide, including the step-by-step process for adding a strategy in ~30 lines of code.
+Pull requests welcome — especially new trading strategies. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full guide, including the step-by-step process for adding a strategy.
 
 ---
 
