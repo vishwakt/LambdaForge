@@ -258,24 +258,22 @@ class TestTradingClientFromSsm:
 
 class TestMargin:
     class _Client:
-        def __init__(self, multiplier="2"):
-            from types import SimpleNamespace
+        """The raw REST surface ops uses: alpaca-py's typed config model
+        rejects paper accounts' responses."""
 
-            self.config = SimpleNamespace(max_margin_multiplier=multiplier)
-            self.account = SimpleNamespace(
-                multiplier="2", cash="-35996.00", buying_power="47566.00"
-            )
+        def __init__(self):
+            self.config = {"max_margin_multiplier": "4", "no_shorting": False}
             self.patched = []
 
-        def get_account_configurations(self):
-            return self.config
+        def get(self, path):
+            if path == "/account/configurations":
+                return dict(self.config)
+            return {"multiplier": "4", "cash": "-35996.00", "buying_power": "47566.00"}
 
-        def get_account(self):
-            return self.account
-
-        def set_account_configurations(self, config):
-            self.patched.append(config.max_margin_multiplier)
-            return config
+        def patch(self, path, data):
+            self.patched.append(data)
+            self.config.update(data)
+            return dict(self.config)
 
     @pytest.fixture
     def client(self, monkeypatch):
@@ -286,9 +284,14 @@ class TestMargin:
 
     def test_reads_the_cap_and_current_use(self, client):
         m = ops.margin(ops.Bot("stock-bot-live"))
-        assert m["max_margin_multiplier"] == "2"
+        assert m["max_margin_multiplier"] == "4"
+        assert m["no_shorting"] is False
         assert m["cash"] == -35996.0
 
     def test_sets_cash_only(self, client):
         assert ops.set_max_margin_multiplier(ops.Bot("stock-bot-2")) == "1"
-        assert client.patched == ["1"]
+        assert client.patched == [{"max_margin_multiplier": "1"}]
+
+    def test_sets_long_only(self, client):
+        ops.set_account_config(ops.Bot("stock-bot-2"), no_shorting=True)
+        assert client.config["no_shorting"] is True
