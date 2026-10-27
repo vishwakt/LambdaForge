@@ -27,7 +27,7 @@ The design below was simplified to get the move done in one week, with every ste
 
 | When (PT) | Step | What happens |
 |---|---|---|
-| Tue Oct 27, morning | You | Add the `DynamoDBTradesTables` statement in `iam-deployer-policy.template.json` to the deployer user and the GitHub deploy role |
+| Tue Oct 27, morning | You | Create `iam-deployer-dynamodb-policy.template.json` as its own managed policy (the main deployer policy is near IAM's 6,144-character limit) and attach it to the deployer user and the GitHub deploy role |
 | Tue Oct 27, 1:15 PM | You | Merge #80 and run Deploy Live |
 | Wed Oct 28, 1:15 PM | You | Merge #81 and run Deploy Live. The tables are created and nothing else changes: `store` is unset, so `sqlite` |
 | Thu Oct 29, 1:45 PM | `shadow` | trades.db is copied into the table and verified exactly, then `store=shadow` |
