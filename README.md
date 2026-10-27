@@ -181,6 +181,8 @@ All strategies implement a common interface — they receive historical OHLCV ba
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
 
 > **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
+>
+> **Strategy exits** come only from the strategy that opened the position, even after it is switched off for new entries. A position the bot has no record of buying can be exited by any enabled strategy.
 
 Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md). A strategy is one class with one method; the starter template is about 50 lines, and the built-in strategies run 140 to 220 lines, most of it spelling out the reason behind each signal.
 

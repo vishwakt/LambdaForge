@@ -156,9 +156,24 @@ class TradingEngine:
         logger.info("DAILY SCAN COMPLETE")
 
     def _check_exit_signals(self, trading_client, open_positions):
-        """Check if any open position should be exited based on strategy."""
+        """Exit a position when a strategy that opened it says SELL.
+
+        Only the strategy that bought a lot decides its exit, whether or not
+        it is still enabled for new entries; stops and the kill switch are
+        separate. A position with no open lot on record (bought by hand, or
+        a lot the log lost), or whose strategy is no longer registered,
+        falls back to the enabled strategies, so it is never left without
+        an exit. A position built from several
+        strategies' lots is sold whole when any one of them says SELL.
+        """
+        # The bot is long-only: a short isn't a position it exits.
+        open_positions = [p for p in open_positions if p["qty"] > 0]
         if not open_positions:
             return
+
+        openers: dict[str, set[str]] = {}
+        for lot in self.trade_log.get_open_trades():
+            openers.setdefault(lot["symbol"], set()).add(lot["strategy"])
 
         symbols = [pos["symbol"] for pos in open_positions]
         # Ensure SPY is fetched for relative_strength strategy
@@ -182,7 +197,11 @@ class TradingEngine:
                 logger.error("No bar data for %s, skipping exit check", symbol)
                 continue
 
-            for strat_name in self.config.scheduler.strategies:
+            exit_strategies = (
+                sorted(s for s in openers.get(symbol, ()) if s in STRATEGIES)
+                or self.config.scheduler.strategies
+            )
+            for strat_name in exit_strategies:
                 if strat_name not in STRATEGIES:
                     continue
                 strategy = STRATEGIES[strat_name]()
