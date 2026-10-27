@@ -16,6 +16,7 @@ from src.client import (
     get_latest_trade,
     get_open_buy_symbols,
     get_order,
+    get_position_qty,
     get_positions,
     get_rate_limit_hits,
     get_trading_client,
@@ -360,19 +361,28 @@ class TradingEngine:
             logger.error("ORDER FAILED: BUY %s: %s", signal.symbol, e)
             return False
 
-    def _execute_exit(self, trading_client, position, signal, strategy_name):
-        """Place a sell order for an existing position.
+    def _execute_exit(self, trading_client, position, signal, strategy_name) -> bool:
+        """Place a sell order for an existing position. True if one was placed.
 
         Handles pyramided positions — closes ALL open buy trades for the
         symbol, logging separate sell records per entry for accurate P&L.
+        Sells exactly what the broker holds at this moment, and never sells
+        at all if that isn't a long position: the bot is long-only.
         """
-        qty = int(position["qty"])
         if has_open_sell_order(trading_client, signal.symbol):
             logger.info(
                 "DEDUP: sell order already open for %s — skipping exit", signal.symbol
             )
-            return
+            return False
         try:
+            qty = int(get_position_qty(trading_client, signal.symbol))
+            if qty <= 0:
+                logger.error(
+                    "EXIT SKIPPED for %s: broker holds %d shares; never selling short",
+                    signal.symbol,
+                    qty,
+                )
+                return False
             order = place_market_order(trading_client, signal.symbol, qty, "sell")
 
             exit_price = position["current_price"]
@@ -435,8 +445,10 @@ class TradingEngine:
                 reason=signal.reason,
                 pnl=total_pnl,
             )
+            return True
         except Exception as e:
             logger.error("EXIT FAILED for %s: %s", signal.symbol, e)
+            return False
 
     def _compute_atr(self, symbol: str, period: int = 14) -> float | None:
         """Compute Average True Range for trailing stop calculation."""
@@ -462,8 +474,10 @@ class TradingEngine:
         data_client = get_data_client(paper=self.paper)
         open_positions = get_positions(trading_client)
 
-        # Phase 0: Learn what the broker actually filled since last cycle
+        # Phase 0: Learn what the broker actually filled since last cycle,
+        # and close lots the broker no longer holds
         self._reconcile_buy_fills(trading_client)
+        self._close_phantom_lots(trading_client)
 
         # Phase 1: Check trailing stop-losses (real-time quotes)
         self._check_trailing_stops(trading_client, data_client)
@@ -580,9 +594,13 @@ class TradingEngine:
 
         positions = get_positions(trading_client)
         pos_map = {p["symbol"]: p for p in positions}
+        # One exit per symbol per run. An exit sells the whole position and
+        # closes every lot, so a second lot of the same symbol must not try
+        # again from the positions list fetched above.
+        exited: set[str] = set()
 
         for trade in open_trades:
-            if trade["stop_loss"] is None:
+            if trade["stop_loss"] is None or trade["symbol"] in exited:
                 continue
 
             try:
@@ -629,15 +647,18 @@ class TradingEngine:
                             entry_price=current_price,
                         )
                         pnl = (current_price - pos["avg_entry_price"]) * int(pos["qty"])
-                        self.notifier.notify_stop_triggered(
-                            trade["symbol"],
-                            current_price,
-                            stop_level,
-                            pnl,
-                        )
-                        self._execute_exit(
+                        exited.add(trade["symbol"])
+                        # Alert only once a sell is actually placed: a failing
+                        # exit used to email on every run.
+                        if self._execute_exit(
                             trading_client, pos, exit_signal, trade["strategy"]
-                        )
+                        ):
+                            self.notifier.notify_stop_triggered(
+                                trade["symbol"],
+                                current_price,
+                                stop_level,
+                                pnl,
+                            )
                 else:
                     if trade.get("stop_breached_at"):
                         self.trade_log.clear_stop_breach(trade["id"])
@@ -649,6 +670,30 @@ class TradingEngine:
                     )
             except Exception as e:
                 logger.error("Stop-loss check failed for %s: %s", trade["symbol"], e)
+
+    def _close_phantom_lots(self, trading_client):
+        """Close filled lots the broker no longer holds a long position for.
+
+        A kill-switch sale, a sale in the Alpaca dashboard, or the 2026-09-24
+        double sell leave lots that look open forever, and every run re-fired
+        their stops against a position that isn't there. Unfilled buys are
+        left to fill reconciliation.
+        """
+        held = {p["symbol"]: float(p["qty"]) for p in get_positions(trading_client)}
+        for lot in self.trade_log.get_open_trades():
+            shares = held.get(lot["symbol"], 0.0)
+            if lot["status"] != "filled" or shares > 0:
+                continue
+            self.trade_log.close_lot_reconciled(
+                lot["id"], f"Reconciled: broker holds {shares:g} shares"
+            )
+            logger.warning(
+                "PHANTOM LOT closed: %s #%s (%g shares); broker holds %g",
+                lot["symbol"],
+                lot["id"],
+                lot["qty"],
+                shares,
+            )
 
     def _stop_check_price(self, data_client, symbol: str) -> float | None:
         """The price a stop is checked against, or None if there's no live one.
