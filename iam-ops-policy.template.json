@@ -3,7 +3,7 @@
     "Copy this file to iam-ops-policy.json and replace all YOUR_AWS_ACCOUNT_ID",
     "placeholders with your 12-digit AWS account ID before applying.",
     "Attach to an IAM user or role used for day-to-day monitoring and operations",
-    "(not the CI/CD deployer). Grants read + invoke access only — no deploy permissions."
+    "(not the CI/CD deployer). Grants log/EventBridge/IAM read, Lambda invoke, and read/write on the trades.db buckets — no deploy permissions."
   ],
   "Version": "2012-10-17",
   "Statement": [
@@ -63,7 +63,9 @@
         "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID",
         "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID/*",
         "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID/*"
+        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID/*",
+        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID",
+        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID/*"
       ]
     }
   ]

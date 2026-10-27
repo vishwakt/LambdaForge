@@ -77,6 +77,8 @@
         "s3:PutEncryptionConfiguration",
         "s3:PutBucketPublicAccessBlock",
         "s3:PutLifecycleConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:ListBucketVersions",
         "s3:TagResource"
       ],
       "Resource": [
@@ -115,7 +117,10 @@
         "ecr:ListTagsForResource",
         "ecr:TagResource",
         "ecr:PutLifecyclePolicy",
-        "ecr:DeleteLifecyclePolicy"
+        "ecr:GetLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:StartLifecyclePolicyPreview",
+        "ecr:GetLifecyclePolicyPreview"
       ],
       "Resource": [
         "arn:aws:ecr:us-east-1:YOUR_AWS_ACCOUNT_ID:repository/stocktradingbot*",
@@ -139,7 +144,11 @@
         "lambda:TagResource",
         "lambda:UntagResource",
         "lambda:ListTags",
-        "lambda:InvokeFunction"
+        "lambda:InvokeFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:GetFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig",
+        "lambda:DeleteFunctionUrlConfig"
       ],
       "Resource": "arn:aws:lambda:us-east-1:YOUR_AWS_ACCOUNT_ID:function:stock-trading-bot-*"
     },
@@ -170,9 +179,26 @@
       "Resource": "arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/stock-trading-bot-*",
       "Condition": {
         "StringEquals": {
-          "iam:PassedToService": "lambda.amazonaws.com"
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "scheduler.amazonaws.com"
+          ]
         }
       }
+    },
+    {
+      "Sid": "EventBridgeScheduler",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:CreateSchedule",
+        "scheduler:UpdateSchedule",
+        "scheduler:DeleteSchedule",
+        "scheduler:GetSchedule",
+        "scheduler:TagResource",
+        "scheduler:UntagResource",
+        "scheduler:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:scheduler:us-east-1:YOUR_AWS_ACCOUNT_ID:schedule/default/*"
     },
     {
       "Sid": "EventBridgeRules",

@@ -1,0 +1,29 @@
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Expire untagged images after 3 days. Each deploy pushes :latest, which orphans the previous image; nothing references it afterwards. Matches the 3-day rollback window used for trades.db versions in S3.",
+      "selection": {
+        "tagStatus": "untagged",
+        "countType": "sinceImagePushed",
+        "countUnit": "days",
+        "countNumber": 3
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    {
+      "rulePriority": 2,
+      "description": "Keep the 10 most recent images overall. A deploy adds two (the :latest push and the SAM-tagged push), so this retains roughly the last five deploys for rollback. Older images are rebuildable from git.",
+      "selection": {
+        "tagStatus": "any",
+        "countType": "imageCountMoreThan",
+        "countNumber": 10
+      },
+      "action": {
+        "type": "expire"
+      }
+    }
+  ]
+}

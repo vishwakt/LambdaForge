@@ -17,6 +17,12 @@ logger = logging.getLogger("stock-trader")
 _ssm_cache: dict[str, str] = {}
 _cache_loaded: bool = False
 
+
+def _csv_list(value: str) -> list[str]:
+    """Parse a comma-separated SSM String into a list, e.g. "macd, zscore"."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # Mapping: SSM param name (after prefix strip) → (config section, field, type)
 _PARAM_MAP = {
     "trading_mode": ("app", "trading_mode", str),
@@ -30,6 +36,9 @@ _PARAM_MAP = {
     "min_confidence": ("risk", "min_confidence", float),
     "monitor_interval": ("scheduler", "monitor_interval_min", int),
     "notify_frequency": ("app", "notify_frequency", str),
+    # Per-stack strategy selection, e.g. "rsi_macd,ema_crossover" — lets the
+    # experimental stack run a different set than the baked-in config.json.
+    "strategies": ("scheduler", "strategies", _csv_list),
 }
 
 
@@ -52,12 +61,15 @@ def load_ssm_params(prefix: str | None = None) -> dict:
     """
     global _ssm_cache, _cache_loaded
 
-    if _cache_loaded:
-        logger.debug("Returning cached SSM params (%d keys)", len(_ssm_cache))
-        return _ssm_cache
-
     if prefix is None:
         prefix = get_ssm_prefix()
+
+    if _cache_loaded:
+        # Warm container: refresh the non-secret params so a config change
+        # (strategies, risk limits) reaches a running bot on the next
+        # invocation instead of waiting for a cold start.
+        _refresh_plain_params(prefix)
+        return _ssm_cache
 
     try:
         import boto3
@@ -90,6 +102,38 @@ def load_ssm_params(prefix: str | None = None) -> dict:
     except (ClientError, NoCredentialsError, Exception) as e:
         logger.debug("SSM unavailable, using defaults: %s", e)
         return {}
+
+
+def _refresh_plain_params(prefix: str) -> None:
+    """Re-read String/StringList params into the cache.
+
+    Skips SecureStrings, so the Alpaca credentials keep the values decrypted
+    at cold start and a warm container pays no KMS decrypt per invocation
+    (the reason the cache exists). Everything else — strategies, risk
+    limits, monitor interval — is re-read every time, which is what makes
+    "change a parameter, no redeploy" actually true for a warm Lambda.
+
+    Fails silently: a config refresh must never break a trading run.
+    """
+    try:
+        import boto3
+
+        ssm = boto3.client("ssm")
+        paginator = ssm.get_paginator("get_parameters_by_path")
+        fresh: dict[str, str] = {}
+        for page in paginator.paginate(
+            Path=prefix,
+            Recursive=True,
+            WithDecryption=False,
+        ):
+            for p in page.get("Parameters", []):
+                if p.get("Type") == "SecureString":
+                    continue
+                fresh[p["Name"].removeprefix(prefix)] = p["Value"]
+        if fresh:
+            _ssm_cache.update(fresh)
+    except Exception as e:
+        logger.debug("Live SSM refresh failed, keeping cached values: %s", e)
 
 
 def clear_ssm_cache() -> None:
