@@ -105,6 +105,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One position per symbol by default (`allow_pyramiding`)**: every BUY
+  signal on a symbol already held used to buy more, up to the 15%
+  concentration cap. A symbol the stack holds, long or short, or has an open
+  buy order for is now skipped. Set the `allow_pyramiding` SSM parameter to
+  `true` to add to positions again. ([#80])
+- **Exits come only from the strategy that opened the position**: the first
+  enabled strategy to say SELL used to close any position. Now the strategy
+  of a position's open lots decides, even after it is switched off for new
+  entries. A position with no lot on record falls back to the enabled
+  strategies. Stops and the kill switch are unchanged. ([#80])
+- **The 9:30 DailyScan only sends the market-open summary**: it used to
+  trade alongside the monitor's 9:30 run, so both bought the same symbols,
+  and both uploaded `trades.db`, so the later upload erased the other's
+  writes. The monitor's first run of the day now writes the open snapshot.
+  DailyScan and the hourly and weekly digests no longer upload `trades.db`.
+  The 15:55 EOD snapshot still overlaps one monitor run a day until the
+  DynamoDB move. ([#80])
 - **`trades.db` version retention tightened from 30 to 3 days; audit archive
   cadence monthly → weekly** — measured baseline before cleanup was ~225 GB
   across the three buckets (the monitor uploads a 2–12 MB DB up to once a
@@ -196,6 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#64]: https://github.com/vishwakt/LambdaForge/pull/64
 [#72]: https://github.com/vishwakt/LambdaForge/pull/72
 [#77]: https://github.com/vishwakt/LambdaForge/pull/77
+[#80]: https://github.com/vishwakt/LambdaForge/pull/80
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
