@@ -34,3 +34,4 @@ iam-deployer-policy.json
 iam-ops-policy.json
 docs/LAUNCH.md
 docs/eb1a-evidence/
+iam-deployer-dynamodb-policy.json

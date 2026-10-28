@@ -1,7 +1,46 @@
 # From trades.db to DynamoDB, and the risk fixes that come first
 
-Status: **proposed**, 2026-09-29. Nothing in this document has been implemented yet.
+Status: proposed 2026-09-29. Phase 1A shipped in #72, phase 1B in #80, and phases 2–5 are built (see [As built](#as-built-october-2026)); the dates in section 2 are superseded by the schedule there.
 All times are Pacific (the market is open 6:30 AM to 1:00 PM PT).
+
+## As built (October 2026)
+
+The design below was simplified to get the move done in one week, with every step run by a scheduled workflow instead of by hand.
+
+**What's the same:** one table per active stack (`stock-trader-2`, `stock-trader-live`; none for stack 1), single-table keys, a time-ordered GSI1 and a sparse open-lot GSI2, 90-day TTL on rejections, on-demand billing, point-in-time recovery, deletion protection, a transaction that records an exit and closes its lot together, stops that the table refuses to lower, and the `sqlite` / `shadow` / `dynamodb` switch in Parameter Store.
+
+**What differs, and why:**
+
+| Plan | As built | Why |
+|---|---|---|
+| One item per Alpaca order (`ORDER#<order_id>`) with `position_state` | One item per trades.db row (`TRADE#<id>`), same columns and ids | Rows move between the stores and back unchanged, so the copy, the shadow comparison, the rollback and the weekly archive need no translation |
+| Rejections aggregated per day and signature | One item per rejection, as today | #80 stopped logging a rejection per signal when the stack is full, which was nearly all of them, so the write cost fell without changing the format |
+| Run tallies and events (kill, alive, strategy changes) | Not built | Not needed to move the store; a follow-up |
+| Kill-switch sells recorded | Not yet | The health check lists any Alpaca order with no row, which includes these |
+| Scratch dry-run table | The copy goes into the real table, and the table isn't used until `store` says so | One table per stack, nothing to clean up |
+| Frozen trades.db under `archive/` | Under `frozen/`, Standard for 90 days | `archive/` moves to Deep Archive on day 0, and a rollback has to read the frozen copy at once |
+| Stops written every run | Written only when they move | Most of the writes, on either store |
+
+**Where the code is:** `src/dynamo_store.py` (the table), `src/store.py` (the switch and shadow mode), `src/migrate.py` (copy, compare, export), `migrate_handler` in `src/lambda_handlers.py` (the modes), `.github/workflows/dynamodb-migration.yml` (the schedule).
+
+**Schedule** (each step refuses to run from the wrong `store` value, so a late or repeated run changes nothing; a failed check fails the job and GitHub emails it):
+
+| When (PT) | Step | What happens |
+|---|---|---|
+| Tue Oct 27, morning | You | Create `iam-deployer-dynamodb-policy.template.json` as its own managed policy (the main deployer policy is near IAM's 6,144-character limit) and attach it to the deployer user and the GitHub deploy role |
+| Tue Oct 27, 1:15 PM | You | Merge #80 and run Deploy Live |
+| Wed Oct 28, 1:15 PM | You | Merge #81 and run Deploy Live. The tables are created and nothing else changes: `store` is unset, so `sqlite` |
+| Thu Oct 29, 1:45 PM | `shadow` | trades.db is copied into the table and verified exactly, then `store=shadow` |
+| Fri Oct 30, all day | | trades.db stays the store of record; every write is repeated on the table through its own write path |
+| Fri Oct 30, 1:40 PM | `cutover` | The day's writes are compared with trades.db (write times by presence only). If clean: trades.db is frozen to `frozen/`, copied in once more, verified exactly, the table is backed up, then `store=dynamodb`. Bot 2 first; live-config only if Bot 2 passed. Stack 1's trades.db is frozen too, and not migrated |
+| Mon Nov 2, 6:00 and 7:45 AM | `health` | `store=dynamodb`, the table answers, and every order Alpaca has today has a row |
+| Fri Nov 6 | You | Phase 6 go/no-go: remove the S3 sync and the SQLite store |
+
+**Rollback:** run the workflow with `mode=rollback` after the close. It writes the table out as trades.db, fills in older rejections from the frozen copy, uploads it and sets `store=sqlite`. Before Friday's cutover, nothing needs rolling back: SQLite is still the store of record.
+
+**Pause:** `gh variable set MIGRATION_PAUSED --body true`.
+
+**Local dry run, 2026-10-26** (copies of both live trades.db files into an in-process table): Bot 2 copied 2,334 trades, 148 snapshots and 101,153 rejections from the last 7 days in 15 seconds, and live-config copied 1,238 trades, 152 snapshots and 19,554 rejections. All checks passed: rows, 28 and 15 open lots, P&L by strategy, the id sequence. The export reproduced each trades.db's counts and P&L exactly, including the full rejection history from the frozen copy.
 
 ## Contents
 

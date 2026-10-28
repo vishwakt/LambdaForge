@@ -13,15 +13,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from src import scheduler as scheduler_mod
-from src.config import AppConfig
 from src.scheduler import TradingEngine
 
 
 @pytest.fixture
-def engine(tmp_path):
-    return TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+def engine(engine_config):
+    return TradingEngine(engine_config)
 
 
 def log_buy(engine, symbol="AXTI", stop_loss=71.13, fill_price=73.07):

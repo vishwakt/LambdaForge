@@ -1,0 +1,135 @@
+name: DynamoDB migration
+
+# Runs the migration in docs/DYNAMODB-PLAN.md (section 7) on schedule, so no
+# step waits for someone to be at a laptop. Each run invokes each stack's
+# MigrateFunction; see src/migrate.py for what a mode does.
+#
+# Every step refuses to start from the wrong store setting, so a late,
+# repeated or out-of-order run changes nothing. A failed check fails the
+# job, and GitHub emails the failure.
+#
+# Pause:           gh variable set MIGRATION_PAUSED --body true
+# Run a step now:  Actions → DynamoDB migration → Run workflow
+#                  (or: gh workflow run dynamodb-migration.yml -f mode=status)
+# Roll back:       the same, with mode=rollback
+
+on:
+  schedule:
+    # UTC. Oct 29-30 are PDT (UTC-7); Nov 2 is PST (UTC-8).
+    - cron: "45 20 29 10 *" # Thu Oct 29, 1:45 PM PDT: copy in, verify, shadow on
+    - cron: "40 20 30 10 *" # Fri Oct 30, 1:40 PM PDT: shadow-day check, cut over
+    - cron: "0 14 2 11 *" #   Mon Nov 2, 6:00 AM PST: health before the open
+    - cron: "45 15 2 11 *" #  Mon Nov 2, 7:45 AM PST: health after the first hour
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Step to run
+        type: choice
+        options: [status, verify, shadow, cutover, health, rollback]
+        default: status
+      stack:
+        description: Which stack (live-config always waits for Bot 2)
+        type: choice
+        options: [both, stock-trading-bot-2, stock-trading-bot-live]
+        default: both
+
+concurrency:
+  group: dynamodb-migration
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    if: vars.MIGRATION_PAUSED != 'true'
+    outputs:
+      mode: ${{ steps.pick.outputs.mode }}
+      bot2: ${{ steps.pick.outputs.bot2 }}
+      live: ${{ steps.pick.outputs.live }}
+      readonly: ${{ steps.pick.outputs.readonly }}
+    steps:
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          MODE: ${{ inputs.mode }}
+          STACK: ${{ inputs.stack }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            mode="$MODE"; stack="$STACK"
+          else
+            stack=both
+            case "$SCHEDULE" in
+              "45 20 29 10 *") mode=shadow ;;
+              "40 20 30 10 *") mode=cutover ;;
+              *) mode=health ;;
+            esac
+          fi
+          case "$mode" in status|verify|health) readonly=true ;; *) readonly=false ;; esac
+          {
+            echo "mode=$mode"
+            echo "readonly=$readonly"
+            echo "bot2=$([ "$stack" != stock-trading-bot-live ] && echo true || echo false)"
+            echo "live=$([ "$stack" != stock-trading-bot-2 ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Mode: $mode, stacks: $stack"
+
+  bot2:
+    needs: plan
+    if: needs.plan.outputs.bot2 == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: ${{ needs.plan.outputs.mode }} on Bot 2
+        run: scripts/migration_step.sh stock-trading-bot-2 "${{ needs.plan.outputs.mode }}"
+
+  # Live-config goes only after Bot 2 passed the same step, except for the
+  # read-only modes, which report on both regardless.
+  live:
+    needs: [plan, bot2]
+    if: >-
+      always() && needs.plan.result == 'success'
+      && needs.plan.outputs.live == 'true'
+      && (needs.bot2.result == 'success' || needs.bot2.result == 'skipped'
+          || needs.plan.outputs.readonly == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: ${{ needs.plan.outputs.mode }} on live-config
+        run: scripts/migration_step.sh stock-trading-bot-live "${{ needs.plan.outputs.mode }}"
+
+  # Stack 1 isn't migrated: its Alpaca keys no longer work, so it can't be
+  # reconciled (docs/DYNAMODB-PLAN.md, 7.5). At cutover its trades.db is
+  # frozen next to the others and left at that.
+  stack1:
+    needs: plan
+    if: needs.plan.outputs.mode == 'cutover' && needs.plan.outputs.bot2 == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Freeze stack 1's trades.db
+        run: |
+          bucket="stock-trader-db-$(aws sts get-caller-identity --query Account --output text)"
+          aws s3 cp "s3://${bucket}/trades.db" "s3://${bucket}/frozen/trades-final-stock-bot-$(date -u +%F).db"

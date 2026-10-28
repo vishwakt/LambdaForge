@@ -57,6 +57,8 @@ class AppConfig:
     trading_mode: str = "paper"  # "paper" or "live"
     notifier: str = "console"  # "console", "sns", "console+sns"
     notify_frequency: str = "hourly"  # "realtime", "hourly", "daily"
+    store: str = "sqlite"  # "sqlite", "shadow", "dynamodb" (see src/store.py)
+    table_name: str = ""  # This stack's DynamoDB table, from TRADES_TABLE
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -112,6 +114,8 @@ def load_config(config_path: str | None = None) -> AppConfig:
     if env_notify_freq:
         config.notify_frequency = env_notify_freq
 
+    config.table_name = os.getenv("TRADES_TABLE", config.table_name)
+
     # SSM Parameter Store overrides (highest priority, Lambda only)
     try:
         from src.ssm_config import apply_ssm_params, load_ssm_params
@@ -125,6 +129,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     if config.trading_mode not in ("paper", "live"):
         raise ValueError(
             f"trading_mode must be 'paper' or 'live', got '{config.trading_mode}'"
+        )
+    if config.store not in ("sqlite", "shadow", "dynamodb"):
+        raise ValueError(
+            f"store must be 'sqlite', 'shadow' or 'dynamodb', got '{config.store}'"
         )
 
     return config

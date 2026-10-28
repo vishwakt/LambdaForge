@@ -1,7 +1,8 @@
 """AWS Lambda handler entry points.
 
 Each handler syncs trades.db from S3 before running. Only the ones that write
-(the monitor, the EOD snapshot, the kill switch) upload it back after.
+(the monitor, the EOD snapshot, the kill switch) upload it back after. With
+store=dynamodb neither happens: the table is the store (src/store.py).
 EventBridge rules trigger these on schedule.
 
 Trading handlers check the kill switch SSM parameter before executing.
@@ -13,16 +14,20 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date, datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
+from src import migrate
 from src.archive import archive_previous_week
-from src.client import get_market_clock, get_trading_client
+from src.client import get_market_clock, get_orders_since, get_trading_client
 from src.config import load_config
+from src.dynamo_store import DynamoTradeLog
 from src.market_hours import is_market_open
 from src.scheduler import TradingEngine
 from src.ssm_config import get_ssm_prefix
+from src.store import MIGRATION_KEY
 
 logger = logging.getLogger("stock-trader")
 logger.setLevel(logging.INFO)
@@ -30,6 +35,7 @@ logger.setLevel(logging.INFO)
 S3_BUCKET = os.getenv("TRADES_DB_BUCKET", "")
 S3_KEY = os.getenv("TRADES_DB_KEY", "trades.db")
 LOCAL_DB_PATH = "/tmp/trades.db"
+FROZEN_PREFIX = "frozen/"
 
 
 def _sync_db_from_s3():
@@ -50,9 +56,9 @@ def _sync_db_from_s3():
             raise
 
 
-def _sync_db_to_s3():
-    """Upload trades.db from /tmp back to S3."""
-    if not S3_BUCKET:
+def _sync_db_to_s3(store: str = "sqlite"):
+    """Upload trades.db from /tmp back to S3, unless the table is the store."""
+    if not S3_BUCKET or store == "dynamodb":
         return
     if not os.path.exists(LOCAL_DB_PATH):
         return
@@ -63,10 +69,11 @@ def _sync_db_to_s3():
 
 def _get_engine() -> TradingEngine:
     """Create TradingEngine with Lambda-appropriate config."""
-    _sync_db_from_s3()
     config = load_config()
-    if S3_BUCKET:
-        config.db_path = LOCAL_DB_PATH
+    if config.store != "dynamodb":
+        _sync_db_from_s3()
+        if S3_BUCKET:
+            config.db_path = LOCAL_DB_PATH
     return TradingEngine(config)
 
 
@@ -195,7 +202,7 @@ def monitor_stops_handler(event, context):
         engine.monitor_stops()
         return {"statusCode": 200, "body": "Stop monitoring complete"}
     finally:
-        _sync_db_to_s3()
+        _sync_db_to_s3(engine.config.store)
 
 
 def eod_snapshot_handler(event, context):
@@ -203,23 +210,58 @@ def eod_snapshot_handler(event, context):
     engine = _get_engine()
     try:
         engine.update_end_of_day()
-        _archive_audit_tables()
+        _archive_audit_tables(engine)
         return {"statusCode": 200, "body": "EOD snapshot complete"}
     finally:
-        _sync_db_to_s3()
+        _sync_db_to_s3(engine.config.store)
 
 
-def _archive_audit_tables():
+def _archive_audit_tables(engine: TradingEngine):
     """Write last week's audit archive (idempotent, fail-open).
+
+    With store=dynamodb the archive is the table written out as a trades.db,
+    with older rejections from the copy frozen at cutover, so each weekly
+    object still holds the full history.
 
     An archive failure must never break the EOD snapshot — log and move on.
     """
     if not S3_BUCKET:
         return
     try:
-        archive_previous_week(LOCAL_DB_PATH, S3_BUCKET, boto3.client("s3"))
+        path = LOCAL_DB_PATH
+        if engine.config.store == "dynamodb":
+            path = "/tmp/archive.db"
+            _export_table(engine.trade_log, path)
+        archive_previous_week(path, S3_BUCKET, boto3.client("s3"))
     except Exception as e:
         logger.error("Audit archive failed (snapshot unaffected): %s", e)
+
+
+def _frozen_key(table_name: str, day: date | None = None) -> str:
+    """Where cutover freezes trades.db. Outside archive/, which goes straight
+    to Deep Archive: a rollback has to be able to read it at once."""
+    return f"{FROZEN_PREFIX}trades-final-{table_name}-{(day or date.today()).isoformat()}.db"
+
+
+def _latest_frozen(s3, table_name: str) -> str | None:
+    listing = s3.list_objects_v2(
+        Bucket=S3_BUCKET, Prefix=f"{FROZEN_PREFIX}trades-final-{table_name}-"
+    )
+    keys = sorted(o["Key"] for o in listing.get("Contents", []))
+    return keys[-1] if keys else None
+
+
+def _export_table(store: DynamoTradeLog, path: str) -> dict:
+    """The table as a trades.db at *path*, with the frozen copy's older rows."""
+    s3 = boto3.client("s3")
+    base = None
+    frozen = _latest_frozen(s3, store.table_name)
+    if frozen:
+        base = "/tmp/frozen.db"
+        s3.download_file(S3_BUCKET, frozen, base)
+    if os.path.exists(path):
+        os.remove(path)
+    return migrate.export(store, path, base=base)
 
 
 def weekly_digest_handler(event, context):
@@ -282,3 +324,184 @@ def kill_switch_handler(event, context):
         }
 
     return {"statusCode": 200, "body": "Kill switch DISENGAGED — trading resumed"}
+
+
+# --- Store migration (MigrateFunction; see src/migrate.py) ---
+
+MIGRATION_DB_PATH = "/tmp/migrate.db"
+
+
+def migrate_handler(event, context):
+    """Workflow or manual invoke: move this stack between trade stores.
+
+    Payload: {"mode": "status" | "verify" | "shadow" | "cutover" | "rollback"
+    | "health"}. Returns {"ok": bool, ...}; the migration workflow fails its
+    job when ok is false. A step that switches the store refuses to run from
+    the wrong starting point, so repeating one is harmless.
+    """
+    mode = event.get("mode", "status")
+    config = load_config()
+    if not config.table_name:
+        return {"ok": False, "mode": mode, "error": "this stack has no table"}
+    steps = {
+        "status": _migration_status,
+        "verify": _migration_verify,
+        "shadow": _migration_shadow,
+        "cutover": _migration_cutover,
+        "rollback": _migration_rollback,
+        "health": _migration_health,
+    }
+    if mode not in steps:
+        return {"ok": False, "mode": mode, "error": f"mode is one of {sorted(steps)}"}
+    report = steps[mode](config, DynamoTradeLog(config.table_name))
+    logger.warning("MIGRATION %s on %s: %s", mode, config.table_name, report)
+    return {"mode": mode, "store_before": config.store, **report}
+
+
+def _starts_from(config, store: str) -> dict | None:
+    if config.store == store:
+        return None
+    return {
+        "ok": False,
+        "error": f"store is {config.store}; this step starts at {store}",
+    }
+
+
+def _set_store(value: str):
+    boto3.client("ssm").put_parameter(
+        Name=f"{get_ssm_prefix()}store", Value=value, Type="String", Overwrite=True
+    )
+    logger.warning("STORE switched to %s", value)
+
+
+def _download_trades_db() -> str:
+    if os.path.exists(MIGRATION_DB_PATH):
+        os.remove(MIGRATION_DB_PATH)
+    boto3.client("s3").download_file(S3_BUCKET, S3_KEY, MIGRATION_DB_PATH)
+    return MIGRATION_DB_PATH
+
+
+def _migration_status(config, store: DynamoTradeLog) -> dict:
+    marker = store.table.get_item(Key=MIGRATION_KEY, ConsistentRead=True).get("Item")
+    return {
+        "ok": True,
+        "store": config.store,
+        "open_lots": len(store.open_lot_ids()),
+        "next_trade_id": store.trade_sequence() + 1,
+        "migrated": {k: str(v) for k, v in marker.items()} if marker else None,
+    }
+
+
+def _migration_verify(config, store: DynamoTradeLog) -> dict:
+    """Compare with trades.db: exactly after a copy, by content after shadow writes."""
+    if config.store == "dynamodb":
+        return {"ok": False, "error": "trades.db is no longer written to compare with"}
+    return migrate.verify(_download_trades_db(), store, exact=config.store == "sqlite")
+
+
+def _migration_shadow(config, store: DynamoTradeLog) -> dict:
+    """Copy trades.db in, check it, and start repeating every write on the table."""
+    if refusal := _starts_from(config, "sqlite"):
+        return refusal
+    if _market_open():
+        # A run writing between the copy and the switch would be a mismatch.
+        return {"ok": False, "error": "the market is open; start after the close"}
+    path = _download_trades_db()
+    loaded = migrate.load(path, store)
+    report = migrate.verify(path, store)
+    if report["ok"]:
+        _set_store("shadow")
+    return {
+        **report,
+        "loaded": loaded,
+        "store_after": "shadow" if report["ok"] else "sqlite",
+    }
+
+
+def _migration_cutover(config, store: DynamoTradeLog) -> dict:
+    """Make the table the store, after the close, if the shadow day was clean.
+
+    The shadow comparison runs first; then trades.db is frozen and copied in
+    once more, so the table starts from its exact contents, and that copy is
+    verified and backed up before the store switches. Any failure leaves
+    store=shadow.
+    """
+    if refusal := _starts_from(config, "shadow"):
+        return refusal
+    if _market_open():
+        return {"ok": False, "error": "the market is open; cut over after the close"}
+    path = _download_trades_db()
+    shadow_day = migrate.verify(path, store, exact=False)
+    if not shadow_day["ok"]:
+        return {**shadow_day, "error": "the shadow day differs from trades.db"}
+
+    frozen = _frozen_key(config.table_name)
+    boto3.client("s3").copy_object(
+        Bucket=S3_BUCKET, CopySource={"Bucket": S3_BUCKET, "Key": S3_KEY}, Key=frozen
+    )
+    loaded = migrate.load(path, store)
+    report = migrate.verify(path, store, check_sequence=True)
+    if not report["ok"]:
+        return {**report, "loaded": loaded, "error": "the final copy failed to verify"}
+    backup = store.create_backup(
+        f"pre-cutover-{config.table_name}-{date.today().isoformat()}"
+    )
+    store.table.put_item(
+        Item={
+            **MIGRATION_KEY,
+            "migrated_at": datetime.now(timezone.utc).isoformat(),
+            "frozen": frozen,
+            "backup": backup,
+            "trades": loaded["trades"],
+        }
+    )
+    _set_store("dynamodb")
+    return {
+        **report,
+        "loaded": loaded,
+        "frozen": frozen,
+        "backup": backup,
+        "store_after": "dynamodb",
+    }
+
+
+def _migration_rollback(config, store: DynamoTradeLog) -> dict:
+    """Write the table back out as trades.db and make SQLite the store again."""
+    if refusal := _starts_from(config, "dynamodb"):
+        return refusal
+    if _market_open():
+        return {"ok": False, "error": "the market is open; roll back after the close"}
+    path = "/tmp/rollback.db"
+    exported = _export_table(store, path)
+    boto3.client("s3").upload_file(path, S3_BUCKET, S3_KEY)
+    _set_store("sqlite")
+    return {"ok": True, "exported": exported, "store_after": "sqlite"}
+
+
+def _migration_health(config, store: DynamoTradeLog) -> dict:
+    """On DynamoDB, reachable, and every order Alpaca has today is on record.
+
+    An order with no row means a write failed after the order was placed:
+    the one failure that loses a position's stop. Kill-switch sales also
+    show up here, since they have never been recorded.
+    """
+    if refusal := _starts_from(config, "dynamodb"):
+        return refusal
+    since = datetime.now(timezone.utc) - timedelta(hours=20)
+    recorded = {
+        t["order_id"]
+        for t in store.get_trades_since(since.replace(tzinfo=None).isoformat())
+    }
+    client = get_trading_client(paper=config.trading_mode == "paper")
+    orders = [
+        o
+        for o in get_orders_since(client, since)
+        if o["status"] not in ("canceled", "rejected", "expired") or o["filled_qty"] > 0
+    ]
+    missing = [o for o in orders if o["order_id"] not in recorded]
+    return {
+        "ok": not missing,
+        "open_lots": len(store.open_lot_ids()),
+        "orders_today": len(orders),
+        "missing": missing[:20],
+    }

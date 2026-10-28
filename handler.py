@@ -11,5 +11,6 @@ from src.lambda_handlers import (
     weekly_digest_handler,
     hourly_digest_handler,
     kill_switch_handler,
+    migrate_handler,
 )
 from src.telegram_bot import telegram_webhook_handler

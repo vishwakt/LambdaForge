@@ -1,0 +1,29 @@
+{
+  "_instructions": [
+    "A separate managed policy because the main deployer policy is close to",
+    "IAM's 6,144-character limit for one managed policy.",
+    "Copy this file to iam-deployer-dynamodb-policy.json, replace",
+    "YOUR_AWS_ACCOUNT_ID, and create it via IAM → Policies → Create policy → JSON.",
+    "Attach it to the deployer user and to the GitHub deploy role (secrets.AWS_ROLE_ARN)."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DynamoDBTradesTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeTable",
+        "dynamodb:UpdateTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:UpdateTimeToLive",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:TagResource",
+        "dynamodb:UntagResource",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:YOUR_AWS_ACCOUNT_ID:table/stock-trader*"
+    }
+  ]
+}

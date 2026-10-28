@@ -63,3 +63,72 @@ def sample_bars():
         )
 
     return _make_bars
+
+
+TABLE_SCHEMA = {
+    "KeySchema": [
+        {"AttributeName": "PK", "KeyType": "HASH"},
+        {"AttributeName": "SK", "KeyType": "RANGE"},
+    ],
+    "AttributeDefinitions": [
+        {"AttributeName": name, "AttributeType": "S"}
+        for name in ("PK", "SK", "GSI1PK", "GSI1SK", "GSI2PK", "GSI2SK")
+    ],
+    "GlobalSecondaryIndexes": [
+        {
+            "IndexName": index,
+            "KeySchema": [
+                {"AttributeName": f"{index}PK", "KeyType": "HASH"},
+                {"AttributeName": f"{index}SK", "KeyType": "RANGE"},
+            ],
+            "Projection": {"ProjectionType": "ALL"},
+        }
+        for index in ("GSI1", "GSI2")
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+}
+
+
+@pytest.fixture
+def dynamo_table(monkeypatch):
+    """An in-process DynamoDB table shaped like template.yaml's TradesTable."""
+    moto = pytest.importorskip("moto")
+    import boto3
+
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    with moto.mock_aws():
+        resource = boto3.resource("dynamodb", region_name="us-east-1")
+        resource.create_table(TableName="stock-trader-test", **TABLE_SCHEMA)
+        yield resource
+
+
+@pytest.fixture
+def dynamo_trade_log(dynamo_table):
+    from src.dynamo_store import DynamoTradeLog
+
+    return DynamoTradeLog("stock-trader-test", resource=dynamo_table)
+
+
+@pytest.fixture(params=["sqlite", "dynamodb"])
+def any_trade_log(request, tmp_path):
+    """The same tests against both stores."""
+    if request.param == "sqlite":
+        return TradeLog(str(tmp_path / "trades.db"))
+    return request.getfixturevalue("dynamo_trade_log")
+
+
+@pytest.fixture(params=["sqlite", "dynamodb"])
+def engine_config(request, tmp_path):
+    """An engine config for each store, so engine tests run against both."""
+    from src.config import AppConfig
+
+    config = AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
+    if request.param == "dynamodb":
+        resource = request.getfixturevalue("dynamo_table")
+        resource.Table("stock-trader-test").put_item(
+            Item={"PK": "META", "SK": "MIGRATION"}
+        )
+        config.store, config.table_name = "dynamodb", "stock-trader-test"
+    return config
