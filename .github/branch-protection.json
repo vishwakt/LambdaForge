@@ -3,9 +3,7 @@
     "strict": true,
     "contexts": [
       "Lint & format (ruff)",
-      "Test (Python 3.9)",
-      "Test (Python 3.11)",
-      "Test (Python 3.12)",
+      "Test (Python 3.14)",
       "Validate SAM template",
       "Secret scan (gitleaks)"
     ]

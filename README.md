@@ -5,7 +5,7 @@
 **Serverless algorithmic trading — forged on AWS Lambda.**
 
 [![CI](https://github.com/vishwakt/LambdaForge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vishwakt/LambdaForge/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/serverless/sam/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
@@ -58,7 +58,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 | 🦙 **[Alpaca account](https://alpaca.markets)** | Free. Paper trading requires no deposit. Live trading requires a funded account. |
 | ☁️ **[AWS account](https://aws.amazon.com)** | About $0.15/month per stack at paper trading volumes (see [Cost](#-cost--about-015month-per-stack)) |
 | 🐳 **Docker** | Required to build Lambda container images |
-| 🐍 **Python 3.9+** | Lambda runtime constraint |
+| 🐍 **Python 3.14** | Lambda runtime constraint |
 | 🔧 **[AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)** | For building and deploying |
 | ⚙️ **AWS CLI** | Configured with `aws configure` |
 
@@ -110,7 +110,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 ```bash
 git clone https://github.com/vishwakt/LambdaForge.git
 cd LambdaForge
-python -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 

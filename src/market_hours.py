@@ -18,7 +18,7 @@ quotes, so the clock and ``is_quote_fresh`` guards exist to stop that.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("stock-trader")
@@ -40,9 +40,9 @@ def trading_day_start_utc(now: datetime | None = None) -> datetime:
     Trade timestamps are stored as naive UTC, so the result compares with
     them directly. A New York day never splits at midnight UTC this way.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     midnight = now.astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    return midnight.astimezone(UTC).replace(tzinfo=None)
 
 
 def is_market_open(now: datetime | None = None, clock=None) -> bool:
@@ -65,7 +65,7 @@ def is_market_open(now: datetime | None = None, clock=None) -> bool:
     if now is None:
         now = datetime.now(ET)
     elif now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc).astimezone(ET)
+        now = now.replace(tzinfo=UTC).astimezone(ET)
     else:
         now = now.astimezone(ET)
 
@@ -90,6 +90,6 @@ def is_quote_fresh(
     if quote_time is None:
         return False
     if quote_time.tzinfo is None:
-        quote_time = quote_time.replace(tzinfo=timezone.utc)
-    now = now or datetime.now(timezone.utc)
+        quote_time = quote_time.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
     return (now - quote_time) <= max_age

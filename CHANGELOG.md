@@ -121,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Python 3.14 in Lambda and CI**: the image was built on
+  `public.ecr.aws/lambda/python:3.9`, which stopped getting security patches
+  when Lambda deprecated it on 2025-12-15, and boto3 no longer releases for
+  3.9. The image now builds on `:3.14` and CI tests 3.14, with 3.15 as an
+  early warning. pandas moves from 2.3 to 3.1 and numpy from 2.0 to 2.5; all
+  eight strategies gave bit-identical signals under both. ([#82])
 - **One position per symbol by default (`allow_pyramiding`)**: every BUY
   signal on a symbol already held used to buy more, up to the 15%
   concentration cap. A symbol the stack holds, long or short, or has an open
@@ -236,6 +242,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#77]: https://github.com/vishwakt/LambdaForge/pull/77
 [#80]: https://github.com/vishwakt/LambdaForge/pull/80
 [#81]: https://github.com/vishwakt/LambdaForge/pull/81
+[#82]: https://github.com/vishwakt/LambdaForge/pull/82
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

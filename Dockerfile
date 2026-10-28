@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/python:3.9
+FROM public.ecr.aws/lambda/python:3.14
 
 # Copy requirements and install dependencies (cached as Docker layer)
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/

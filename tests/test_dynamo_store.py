@@ -4,7 +4,7 @@ Each test runs against both stores (the ``any_trade_log`` fixture), so a
 difference between them fails here before it can reach a cutover.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -128,11 +128,11 @@ class TestStops:
 
 class TestHistory:
     def test_exited_since(self, any_trade_log):
-        before = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+        before = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
         sell(any_trade_log, parent=None, symbol="AXTI")
         assert any_trade_log.exited_since("AXTI", before) is True
         assert any_trade_log.exited_since("ANET", before) is False
-        later = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
+        later = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1)
         assert any_trade_log.exited_since("AXTI", later) is False
 
     def test_get_trades_filters_and_limits(self, any_trade_log):
@@ -146,7 +146,7 @@ class TestHistory:
 
     def test_period_and_since_queries(self, any_trade_log):
         lot = buy(any_trade_log)
-        today = datetime.now(timezone.utc).date().isoformat()  # trades are UTC
+        today = datetime.now(UTC).date().isoformat()  # trades are UTC
         assert ids(any_trade_log.get_trades_for_period(today, today)) == [lot]
         assert any_trade_log.get_trades_for_period("2020-01-01", "2020-01-02") == []
         assert ids(any_trade_log.get_trades_since(today)) == [lot]

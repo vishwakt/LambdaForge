@@ -8,7 +8,7 @@ almost every time. Opting out skips the ratchet but keeps the strategy's own
 stop as a hard floor.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -148,7 +148,7 @@ class TestThroughTheMonitor:
             "get_latest_trade",
             lambda client, symbol: {
                 "price": price,
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
             },
         )
         monkeypatch.setattr(
@@ -156,7 +156,7 @@ class TestThroughTheMonitor:
             "get_latest_quote",
             lambda client, symbol: {
                 "bid_price": price,
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
             },
         )
         monkeypatch.setattr(

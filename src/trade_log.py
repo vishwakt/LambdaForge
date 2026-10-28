@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 
 class TradeLog:
@@ -114,7 +114,7 @@ class TradeLog:
                 (
                     # Naive UTC: what Lambda has always written. Local runs
                     # used to write local time, which broke same-day checks.
-                    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                    datetime.now(UTC).replace(tzinfo=None).isoformat(),
                     symbol,
                     side,
                     qty,
@@ -193,7 +193,7 @@ class TradeLog:
     def mark_stop_breach(self, trade_id: int):
         """Record that this lot's stop was breached, pending confirmation."""
         self._set_stop_breach(
-            trade_id, datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            trade_id, datetime.now(UTC).replace(tzinfo=None).isoformat()
         )
 
     def clear_stop_breach(self, trade_id: int):
@@ -228,7 +228,7 @@ class TradeLog:
                     strategy, reason, parent_trade_id)
                    VALUES (?, ?, 'sell', ?, 'reconcile', NULL, 'reconciled', ?, ?, ?)""",
                 (
-                    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                    datetime.now(UTC).replace(tzinfo=None).isoformat(),
                     lot["symbol"],
                     lot["qty"],
                     lot["strategy"],
