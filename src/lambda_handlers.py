@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
@@ -449,7 +449,7 @@ def _migration_cutover(config, store: DynamoTradeLog) -> dict:
     store.table.put_item(
         Item={
             **MIGRATION_KEY,
-            "migrated_at": datetime.now(timezone.utc).isoformat(),
+            "migrated_at": datetime.now(UTC).isoformat(),
             "frozen": frozen,
             "backup": backup,
             "trades": loaded["trades"],
@@ -487,7 +487,7 @@ def _migration_health(config, store: DynamoTradeLog) -> dict:
     """
     if refusal := _starts_from(config, "dynamodb"):
         return refusal
-    since = datetime.now(timezone.utc) - timedelta(hours=20)
+    since = datetime.now(UTC) - timedelta(hours=20)
     recorded = {
         t["order_id"]
         for t in store.get_trades_since(since.replace(tzinfo=None).isoformat())

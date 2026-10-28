@@ -8,7 +8,7 @@ after that re-fired the stop on the phantom lots, emailed, and failed with
 "qty must be > 0": about five emails a minute for a month.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -71,7 +71,7 @@ def broker(engine, monkeypatch):
     monkeypatch.setattr(
         scheduler_mod,
         "get_latest_trade",
-        lambda client, s: {"price": 200.0, "timestamp": datetime.now(timezone.utc)},
+        lambda client, s: {"price": 200.0, "timestamp": datetime.now(UTC)},
     )
     monkeypatch.setattr(engine, "_compute_atr", lambda s: None)
     monkeypatch.setattr(engine.config.risk, "trailing_stop_pct", 0.5)

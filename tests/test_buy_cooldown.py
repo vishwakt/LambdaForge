@@ -7,7 +7,7 @@ rest of the New York trading day.
 """
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -79,10 +79,10 @@ class TestCooldown:
 class TestTradingDayStart:
     def test_is_new_york_midnight_in_utc(self):
         # 2026-09-29 15:00 UTC is 11:00 EDT, so the day began at 04:00 UTC.
-        now = datetime(2026, 9, 29, 15, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 9, 29, 15, 0, tzinfo=UTC)
         assert trading_day_start_utc(now) == datetime(2026, 9, 29, 4, 0)
 
     def test_evening_utc_is_still_the_same_new_york_day(self):
         # 23:30 UTC is 19:30 EDT, still Sep 29 in New York.
-        now = datetime(2026, 9, 29, 23, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 9, 29, 23, 30, tzinfo=UTC)
         assert trading_day_start_utc(now) == datetime(2026, 9, 29, 4, 0)

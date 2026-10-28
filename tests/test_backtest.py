@@ -20,8 +20,8 @@ def frame(rows: dict[str, tuple[float, float]]) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "open": opens,
-            "high": [max(o, c) for o, c in zip(opens, closes)],
-            "low": [min(o, c) for o, c in zip(opens, closes)],
+            "high": [max(o, c) for o, c in zip(opens, closes, strict=True)],
+            "low": [min(o, c) for o, c in zip(opens, closes, strict=True)],
             "close": closes,
             "volume": [1e6] * len(rows),
             "vwap": closes,

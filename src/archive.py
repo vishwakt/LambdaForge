@@ -16,7 +16,7 @@ import gzip
 import json
 import logging
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from botocore.exceptions import ClientError
 
@@ -50,7 +50,7 @@ def export_tables(db_path: str) -> bytes:
         conn.close()
 
     payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "tables": tables,
     }
     return gzip.compress(json.dumps(payload, default=str).encode("utf-8"))

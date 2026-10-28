@@ -1,6 +1,6 @@
 [tool.ruff]
-# Target Python 3.9 to match Lambda runtime (public.ecr.aws/lambda/python:3.9).
-target-version = "py39"
+# Target Python 3.14 to match Lambda runtime (public.ecr.aws/lambda/python:3.14).
+target-version = "py314"
 line-length = 88
 extend-exclude = [
     ".sam-build",

@@ -26,7 +26,7 @@ import logging
 import math
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from itertools import islice
 
@@ -141,12 +141,12 @@ def _row(item: dict, columns: tuple[str, ...]) -> dict:
 
 def _utc_now() -> str:
     """Naive UTC ISO timestamp, the format trades.db has always used."""
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    return datetime.now(UTC).replace(tzinfo=None).isoformat()
 
 
 def _sqlite_now() -> str:
     """SQLite's datetime('now'): UTC, second precision, a space separator."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _trade_key(trade_id: int) -> dict:
@@ -189,7 +189,7 @@ def rejection_item(row: dict, key: str) -> dict:
         **_attrs(row),
         "PK": f"REJECT#{ts[:10]}",
         "SK": f"{ts}#{key}",
-        "expires_at": Decimal(int(expires.replace(tzinfo=timezone.utc).timestamp())),
+        "expires_at": Decimal(int(expires.replace(tzinfo=UTC).timestamp())),
     }
 
 
