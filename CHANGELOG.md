@@ -154,6 +154,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Held shares with no recorded buy get a stop** — stops run per lot, and on
+  2026-09-24 nine buys on live-config never reached trades.db, so those
+  positions went five weeks with no stop. Each monitor run now adopts shares
+  the broker holds that no open lot covers, as a lot with strategy
+  `adopted`. It keeps the broker's average entry for P&L, but its stop starts
+  below that day's price, so adopting never sells by itself. ([#84])
 - **Exits can no longer sell short, and stop alerts mean a sale happened** —
   on 2026-09-24 a stop fired for one ARM lot, the exit sold the whole
   39-share position, and the loop moved to the next ARM lot and sold 39 more
@@ -236,6 +242,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#77]: https://github.com/vishwakt/LambdaForge/pull/77
 [#80]: https://github.com/vishwakt/LambdaForge/pull/80
 [#81]: https://github.com/vishwakt/LambdaForge/pull/81
+[#84]: https://github.com/vishwakt/LambdaForge/pull/84
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
