@@ -1,0 +1,25 @@
+{
+  "_instructions": [
+    "Lets CloudFormation set each scheduled function's failure destination",
+    "(EventInvokeConfig in template.yaml). A separate managed policy because the",
+    "main deployer policy is close to IAM's 6,144-character limit.",
+    "Copy this file to iam-deployer-invoke-config-policy.json, replace",
+    "YOUR_AWS_ACCOUNT_ID, and create it via IAM → Policies → Create policy → JSON.",
+    "Attach it to the deployer user and to the GitHub deploy role (secrets.AWS_ROLE_ARN)."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaEventInvokeConfig",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PutFunctionEventInvokeConfig",
+        "lambda:GetFunctionEventInvokeConfig",
+        "lambda:UpdateFunctionEventInvokeConfig",
+        "lambda:DeleteFunctionEventInvokeConfig",
+        "lambda:ListFunctionEventInvokeConfigs"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:YOUR_AWS_ACCOUNT_ID:function:stock-trading-bot-*"
+    }
+  ]
+}
