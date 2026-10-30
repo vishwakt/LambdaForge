@@ -2,7 +2,7 @@
 
 On 2026-09-24 nine buys on live-config never reached trades.db. Stops run per
 lot, so FDX, JPM, LAD, LNT, NKTR, PB, PEP, PNFP and VLY went five weeks with
-no stop; NKTR fell 32%.
+no stop.
 """
 
 from datetime import datetime, timezone
