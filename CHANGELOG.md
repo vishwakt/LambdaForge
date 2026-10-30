@@ -154,6 +154,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The end-of-day run no longer dies on the weekly archive, and a run that
+  dies emails you** — the archive built every row of trades, snapshots and
+  rejections in memory, several times over. With Bot 2's rejections table near
+  80k rows, that ran the 512 MB EOD Lambda out of memory on every run from
+  2026-10-19. The archive is written only once it succeeds, so each day
+  retried it and died. The trades.db upload came after the archive, and a
+  process killed for memory or time runs no `finally`, so Bot 2's trades.db
+  has had no end-of-day snapshot since 2026-10-16. Nothing reported it: the
+  killed process couldn't, and after Lambda's two retries the event was
+  dropped. The export now streams row by row through gzip (on 100k rejections
+  the traced peak falls from about 133 MB to under 1 MB), trades.db is
+  uploaded before the archive runs, and each scheduled function sends a run
+  that still fails after its retries to the alerts topic, which emails it.
+  Deploying this needs a new deployer policy,
+  `iam-deployer-invoke-config-policy.template.json`. ([#85])
 - **Exits can no longer sell short, and stop alerts mean a sale happened** —
   on 2026-09-24 a stop fired for one ARM lot, the exit sold the whole
   39-share position, and the loop moved to the next ARM lot and sold 39 more
@@ -236,6 +251,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#77]: https://github.com/vishwakt/LambdaForge/pull/77
 [#80]: https://github.com/vishwakt/LambdaForge/pull/80
 [#81]: https://github.com/vishwakt/LambdaForge/pull/81
+[#85]: https://github.com/vishwakt/LambdaForge/pull/85
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
