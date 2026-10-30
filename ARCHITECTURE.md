@@ -49,7 +49,7 @@ risk parameters and flip the kill switch without redeploying.
 |----------|----------|---------|
 | `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Full daily scan: exits, entries, risk checks |
 | `MonitorStopsFunction` | `rate(1 minute)` during market hours | Trailing stop-loss enforcement, opportunistic entries |
-| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; on the first run of each ISO week, exports `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
+| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison, then uploads trades.db; after that, on the first run of each ISO week, streams `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
 | `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
 | `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
@@ -244,6 +244,7 @@ Email types and when they fire:
 | Hourly digest | `HourlyDigestFunction` | SES HTML — all activity in last hour |
 | Daily summary | End of DailyScan and EOD snapshot (twice daily) | SES HTML — equity, P&L, benchmark |
 | Weekly digest | Friday EOD | SES HTML — equity curve, strategy breakdown |
+| Failed run | A scheduled function still failing after Lambda's two retries (`EventInvokeConfig` → alerts topic) | SNS JSON — the invocation record with the error type |
 
 Email subjects are prefixed with `[PAPER]`, `[LIVE]`, or `[BOT-2]` so you can filter by stack in your inbox.
 

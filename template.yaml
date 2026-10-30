@@ -287,6 +287,15 @@ Resources:
         Command:
           - handler.daily_scan_handler
       Role: !GetAtt TradingBotRole.Arn
+      # Once Lambda's two retries are spent, the failed run goes to the
+      # alerts topic, which emails it. A run killed for memory or time can't
+      # report itself, and without this it vanishes. TradingBotRole already
+      # allows sns:Publish on the topic.
+      EventInvokeConfig:
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+            Destination: !Ref TradingAlertsTopic
       Events:
         # Event keys end in "Local" because SAM derives the CloudFormation
         # logical ID from them, and CloudFormation cannot change an existing
@@ -320,6 +329,11 @@ Resources:
           - handler.monitor_stops_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
+      EventInvokeConfig: # failed runs email the alerts topic (see DailyScanFunction)
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+            Destination: !Ref TradingAlertsTopic
       Events:
         MonitorSchedule:
           Type: Schedule
@@ -344,6 +358,11 @@ Resources:
           - handler.eod_snapshot_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
+      EventInvokeConfig: # failed runs email the alerts topic (see DailyScanFunction)
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+            Destination: !Ref TradingAlertsTopic
       Events:
         EodScheduleLocal:
           Type: ScheduleV2
@@ -367,6 +386,11 @@ Resources:
           - handler.weekly_digest_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
+      EventInvokeConfig: # failed runs email the alerts topic (see DailyScanFunction)
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+            Destination: !Ref TradingAlertsTopic
       Events:
         WeeklyScheduleLocal:
           Type: ScheduleV2
@@ -390,6 +414,11 @@ Resources:
           - handler.hourly_digest_handler
       Role: !GetAtt TradingBotRole.Arn
       Timeout: 120
+      EventInvokeConfig: # failed runs email the alerts topic (see DailyScanFunction)
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+            Destination: !Ref TradingAlertsTopic
       Events:
         HourlyScheduleLocal:
           Type: ScheduleV2
