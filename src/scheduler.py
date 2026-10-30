@@ -54,6 +54,10 @@ STOP_GAP_PCT = 0.05
 # cycle, so this only matters for draining a backlog under the 200 req/min cap.
 FILL_RECONCILE_BATCH = 50
 
+# Strategy recorded on a lot made for shares the broker held with no lot. It
+# isn't in STRATEGIES, so its exits fall back to the configured strategies.
+ADOPTED_STRATEGY = "adopted"
+
 
 def _manages_own_exits(strategy_name: str) -> bool:
     """True when a strategy declares that it owns its exit rules.
@@ -504,11 +508,12 @@ class TradingEngine:
         open_positions = get_positions(trading_client)
 
         # Phase 0: The day's first run records the open, before it trades.
-        # Then learn what the broker actually filled since last cycle, and
-        # close lots the broker no longer holds
+        # Then learn what the broker actually filled since last cycle, close
+        # lots the broker no longer holds, and adopt shares no lot covers
         self._save_open_snapshot(trading_client, open_positions)
         self._reconcile_buy_fills(trading_client)
         self._close_phantom_lots(trading_client)
+        self._adopt_untracked_positions(trading_client)
 
         # Phase 1: Check trailing stop-losses (real-time quotes)
         self._check_trailing_stops(trading_client, data_client)
@@ -751,6 +756,66 @@ class TradingEngine:
                 lot["id"],
                 lot["qty"],
                 shares,
+            )
+
+    def _adopt_untracked_positions(self, trading_client):
+        """Record a lot for shares the broker holds that no open lot covers.
+
+        Stops run per lot, so shares with no lot have no stop. On 2026-09-24
+        nine buys on live-config never reached trades.db and those positions
+        went five weeks unprotected. The adopted lot keeps the broker's
+        average entry for P&L, but its stop starts below today's price, so
+        adopting never sells by itself. A symbol with an open order is left
+        for the next run, when its fill has landed.
+        """
+        try:
+            covered: dict[str, float] = {}
+            for lot in self.trade_log.get_open_trades():
+                covered[lot["symbol"]] = covered.get(lot["symbol"], 0.0) + lot["qty"]
+            untracked = [
+                (pos, pos["qty"] - covered.get(pos["symbol"], 0.0))
+                for pos in get_positions(trading_client)
+                if pos["qty"] - covered.get(pos["symbol"], 0.0) > 0
+            ]
+            if not untracked:
+                return
+            pending = get_open_buy_symbols(trading_client)
+        except Exception as e:
+            logger.error("Untracked-position check failed (retrying next run): %s", e)
+            return
+
+        for pos, shares in untracked:
+            symbol = pos["symbol"]
+            if symbol in pending or has_open_sell_order(trading_client, symbol):
+                continue
+            price = pos["current_price"]
+            stop = price * (1 - self.config.risk.trailing_stop_pct)
+            trade_id = self.trade_log.log_trade(
+                symbol=symbol,
+                side="buy",
+                qty=shares,
+                order_type="reconcile",
+                order_id=None,
+                strategy=ADOPTED_STRATEGY,
+                confidence=None,
+                reason=(
+                    f"Adopted: broker holds {pos['qty']:g} shares, open lots "
+                    f"cover {covered.get(symbol, 0.0):g}"
+                ),
+                stop_loss=stop,
+                take_profit=None,
+            )
+            self.trade_log.mark_buy_filled(trade_id, pos["avg_entry_price"], shares)
+            self.trade_log.update_trailing_stop(trade_id, stop, price)
+            logger.warning(
+                "ADOPTED: %s #%s (%g shares, avg entry $%.2f); stop $%.2f "
+                "below today's $%.2f",
+                symbol,
+                trade_id,
+                shares,
+                pos["avg_entry_price"],
+                stop,
+                price,
             )
 
     def _stop_check_price(self, data_client, symbol: str) -> float | None:

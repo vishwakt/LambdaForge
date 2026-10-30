@@ -90,6 +90,8 @@ MonitorStopsFunction
   ├── _check_kill_switch()
   └── TradingEngine.monitor_stops()
         ├── _reconcile_buy_fills() — record fill price/qty of pending buys (≤50 lookups/cycle)
+        ├── _close_phantom_lots() — close lots the broker no longer holds
+        ├── _adopt_untracked_positions() — give held shares no lot covers a lot, stop from today's price
         ├── _check_trailing_stops() — real-time quotes via Alpaca
         │     ├── Ratchet stop up to max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR); never lowered
         │     │   (skipped for strategies declaring uses_trailing_stop = False; their stop_loss stands as a floor)
