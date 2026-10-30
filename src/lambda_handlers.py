@@ -210,10 +210,12 @@ def eod_snapshot_handler(event, context):
     engine = _get_engine()
     try:
         engine.update_end_of_day()
-        _archive_audit_tables(engine)
-        return {"statusCode": 200, "body": "EOD snapshot complete"}
     finally:
+        # Upload before archiving. A run that dies of memory or time runs no
+        # except or finally, so anything after the archive could be lost.
         _sync_db_to_s3(engine.config.store)
+    _archive_audit_tables(engine)
+    return {"statusCode": 200, "body": "EOD snapshot complete"}
 
 
 def _archive_audit_tables(engine: TradingEngine):
