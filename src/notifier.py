@@ -35,8 +35,8 @@ def _get_env_label() -> str:
     prefix = os.getenv("SSM_PREFIX", "")
     label = _ENV_LABELS.get(prefix, "")
     if not label and prefix:
-        # Unknown prefix — use it directly, stripped of slashes
-        label = prefix.strip("/").upper()
+        # Any other bot: "/stock-bot-3/" → "BOT-3"
+        label = prefix.strip("/").removeprefix("stock-").upper()
     return f"[{label}] " if label else ""
 
 

@@ -1,5 +1,8 @@
 name: Build & Deploy
 
+# Deploys every bot in bots.json with deploy: auto, one job per bot, on each
+# push to main. Bots with deploy: manual go through Deploy Live instead.
+
 on:
   push:
     branches: [main]
@@ -25,19 +28,11 @@ on:
   # Manual trigger for re-running a deploy without a code change
   # (e.g., after an IAM/OIDC fix or an SSM parameter update).
   workflow_dispatch:
-
-# Serialize deploys targeting the same CloudFormation stack. Without this,
-# back-to-back pushes (e.g. merging multiple Dependabot PRs in quick
-# succession) can race and fail with "Stack is in UPDATE_IN_PROGRESS".
-# Queue, don't cancel — killing an in-flight SAM deploy mid-changeset
-# is worse than waiting.
-concurrency:
-  group: deploy-${{ github.workflow }}
-  cancel-in-progress: false
-
-env:
-  AWS_REGION: us-east-1
-  SAM_STACK_NAME: stock-trading-bot
+    inputs:
+      bot:
+        description: One bot from bots.json (deploy auto), or blank for all of them
+        required: false
+        type: string
 
 jobs:
   test:
@@ -59,79 +54,38 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
 
-  deploy:
-    needs: test
+  plan:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    permissions:
-      id-token: write
-      contents: read
+    outputs:
+      bots: ${{ steps.pick.outputs.bots }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up QEMU for ARM builds
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver: docker
-
-      - name: Login to ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Ensure ECR repo, cost tags, and lifecycle policy
+      - id: pick
         env:
-          ECR_REPO: stock-trading-bot
-          ENVIRONMENT: paper
+          BOT: ${{ inputs.bot }}
         run: |
-          aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
-            aws ecr create-repository --repository-name "$ECR_REPO"
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          # ECR repos live outside the CloudFormation stack, so stack tags do
-          # not reach them. Tag explicitly or this cost is unattributable.
-          aws ecr tag-resource \
-            --resource-arn "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/${ECR_REPO}" \
-            --tags Key=Project,Value=stock-trading-bot Key=Environment,Value="$ENVIRONMENT"
-          # Every deploy leaves two images behind: the orphaned previous
-          # :latest, and SAM's own tagged push. Without this they accumulate
-          # forever. Idempotent — re-applying the same policy is a no-op.
-          aws ecr put-lifecycle-policy \
-            --repository-name "$ECR_REPO" \
-            --lifecycle-policy-text file://ecr-lifecycle-policy.json
+          bots=$(jq -c --arg bot "$BOT" \
+            '[.bots[] | select(.deploy == "auto" and ($bot == "" or .name == $bot)) | .name]' \
+            bots.json)
+          if [ "$bots" = "[]" ]; then
+            echo "::error::no bot with deploy: auto matches '$BOT' in bots.json"
+            exit 1
+          fi
+          echo "bots=$bots" >> "$GITHUB_OUTPUT"
+          echo "Deploying: $bots"
 
-      - name: Build and push Docker image
-        run: |
-          IMAGE_URI="${{ steps.ecr-login.outputs.registry }}/stock-trading-bot:latest"
-          docker buildx build --platform linux/arm64 -t "$IMAGE_URI" --load .
-          docker push "$IMAGE_URI"
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-
-      - name: Set up SAM CLI
-        uses: aws-actions/setup-sam@v2
-
-      - name: SAM Build
-        run: sam build
-
-      - name: SAM Deploy
-        run: |
-          sam deploy \
-            --stack-name ${{ env.SAM_STACK_NAME }} \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --resolve-s3 \
-            --image-repository ${{ steps.ecr-login.outputs.registry }}/stock-trading-bot \
-            --capabilities CAPABILITY_IAM \
-            --tags Project=stock-trading-bot Environment=paper \
-            --parameter-overrides \
-              NotificationEmail=${{ secrets.NOTIFICATION_EMAIL }} \
-              Environment=paper
+  deploy:
+    needs: [test, plan]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        bot: ${{ fromJSON(needs.plan.outputs.bots) }}
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/deploy-stack.yml
+    with:
+      bot: ${{ matrix.bot }}
+    secrets: inherit

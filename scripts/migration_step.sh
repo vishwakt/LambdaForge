@@ -2,6 +2,7 @@
 # Run one DynamoDB migration step on one stack and fail unless it reports ok.
 #
 #   scripts/migration_step.sh stock-trading-bot-2 status
+#   CONFIRM=stock-trading-bot-2 scripts/migration_step.sh stock-trading-bot-2 reset
 #
 # Modes are described in src/migrate.py. The step runs inside the stack's
 # MigrateFunction, with the stack's own role and Alpaca keys; nothing here
@@ -16,7 +17,7 @@ aws lambda invoke \
   --function-name "${stack}-migrate" \
   --cli-binary-format raw-in-base64-out \
   --cli-read-timeout 900 \
-  --payload "{\"mode\": \"${mode}\"}" \
+  --payload "$(MODE="$mode" python3 -c 'import json, os; print(json.dumps({"mode": os.environ["MODE"], "confirm": os.environ.get("CONFIRM", "")}))')" \
   "$report" >/dev/null
 
 python3 -m json.tool "$report"

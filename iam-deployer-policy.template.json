@@ -2,7 +2,10 @@
   "_instructions": [
     "Copy this file to iam-deployer-policy.json and replace all YOUR_AWS_ACCOUNT_ID",
     "placeholders with your 12-digit AWS account ID before applying.",
-    "Apply via: IAM → Users → <deployer-user> → Permissions → Add inline policy → JSON."
+    "Apply via: IAM → Users → <deployer-user> → Permissions → Add inline policy → JSON.",
+    "Bot names (bots.json) are matched by pattern: a new bot named stock-bot-<1 or 2",
+    "characters> needs no change here. ? matches one character, so /stock-bot-ops/",
+    "(the Telegram token) stays out of reach."
   ],
   "Version": "2012-10-17",
   "Statement": [
@@ -82,12 +85,8 @@
         "s3:TagResource"
       ],
       "Resource": [
-        "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-YOUR_AWS_ACCOUNT_ID/*",
-        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-live-YOUR_AWS_ACCOUNT_ID/*",
-        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID",
-        "arn:aws:s3:::stock-trader-db-2-YOUR_AWS_ACCOUNT_ID/*"
+        "arn:aws:s3:::stock-trader-db*-YOUR_AWS_ACCOUNT_ID",
+        "arn:aws:s3:::stock-trader-db*-YOUR_AWS_ACCOUNT_ID/*"
       ]
     },
     {
@@ -267,7 +266,8 @@
       "Resource": [
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot/*",
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-live/*",
-        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-2/*"
+        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-?/*",
+        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-??/*"
       ]
     }
   ]

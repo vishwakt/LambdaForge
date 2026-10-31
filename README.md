@@ -156,13 +156,38 @@ sam deploy             # Subsequent deploys
 
 ### 6. Subscribe to alerts
 
-If you passed `NotificationEmail` at deploy time, SAM already created the subscription — confirm it from the email SNS sends you. Otherwise: **SNS → Topics → the topic whose display name is "Stock Trading Bot Alerts (paper)" → Create subscription → Email**.
+If you passed `NotificationEmail` at deploy time, SAM already created the subscription — confirm it from the email SNS sends you. Otherwise: **SNS → Topics → the topic whose display name is "Stock Trading Bot Alerts (stock-trading-bot)" → Create subscription → Email**.
 
 ### 7. Verify everything is working
 
 ```bash
 ./scripts/test-lambdas.sh stock-trading-bot
 ```
+
+### Add another bot
+
+Every bot is one line in [`bots.json`](bots.json), and its name gives every
+other name: `stock-bot-4` has the SSM prefix `/stock-bot-4/`, the stack and
+ECR repo `stock-trading-bot-4`, the bucket `stock-trader-db-4-<account>` and
+the table `stock-trader-4`. Give each bot its own Alpaca paper account:
+positions belong to an account, so two bots sharing keys would trade, and
+kill, each other's positions.
+
+```bash
+python scripts/new_bot.py stock-bot-4
+```
+
+The script adds the bot to `bots.json`, asks for its Alpaca paper keys
+(hidden as you type), checks them with Alpaca and stores them as SecureStrings
+under `/stock-bot-4/`. Commit `bots.json` and merge it to `main`: Build &
+Deploy creates `stock-trading-bot-4` and starts it on DynamoDB. Then confirm
+the subscription email SNS sends, so its alerts reach you. One or two
+characters after `stock-bot-` match the IAM policies' name patterns, so no IAM
+or template change is needed.
+
+To start a bot's next paper experiment from zero, close its positions, then
+run **Actions → DynamoDB migration** with `mode=reset`, the bot, and its stack
+name as `confirm`. The table is backed up first, so nothing is lost.
 
 ---
 
@@ -265,8 +290,8 @@ Strategy changes are written to the bot's `strategies` SSM parameter and picked
 up on its next scheduled run — no redeploy, no restart, and each bot can run a
 different set.
 
-Bot names are the SSM prefixes without slashes: `stock-bot`, `stock-bot-2`,
-`stock-bot-live`. Only chat IDs on the allowlist get a reply; anyone else is
+Bot names are the SSM prefixes without slashes, as listed in `bots.json`:
+`stock-bot`, `stock-bot-2`, `stock-bot-live`, `stock-bot-3`. Only chat IDs on the allowlist get a reply; anyone else is
 ignored silently. `kill` runs inside the target stack's own Lambda, so the
 bot never holds Alpaca credentials of its own.
 
@@ -322,7 +347,7 @@ Six Lambda functions per stack — five on EventBridge schedules, plus a manuall
 | `WeeklyDigest` | Friday 15:55 ET | Weekly performance report |
 | `HourlyDigest` | Hourly (market hours) | Consolidated trade activity digest |
 | `KillSwitch` | Manual invoke | Emergency halt — liquidates everything |
-| `TelegramOps` | Telegram webhook (paper stack) | Status, positions, kill, alive for all three stacks |
+| `TelegramOps` | Telegram webhook (paper stack) | Status, positions, kill, alive for every bot in `bots.json` |
 
 > Schedules run on EventBridge Scheduler with `ScheduleExpressionTimezone: America/New_York`, so these times hold across daylight-saving transitions.
 

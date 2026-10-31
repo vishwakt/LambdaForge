@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A new bot is one line in `bots.json`** — adding a stack took a template
+  mapping, a copied deploy workflow, IAM edits in three places and a code
+  change. `bots.json` now lists every bot, and a bot's name gives every other
+  name (SSM prefix, stack, ECR repo, bucket, table). The template takes a
+  `BotSuffix` parameter instead of a per-environment mapping; existing stacks
+  resolve to the names they already have, so nothing is replaced. Build &
+  Deploy deploys each `deploy: auto` bot through one reusable workflow, the IAM
+  templates and the Telegram role match bots by name pattern, and
+  `scripts/new_bot.py` adds the entry and stores the bot's Alpaca keys after
+  checking them. Bot 3 (`stock-bot-3`) is the first bot added this way.
+  ([#86])
+- **New stacks start on DynamoDB; paper experiments can start over** — a
+  stack's first deploy runs the new `init` step, which marks its empty table
+  as the store and refuses any table or trades.db with rows. `reset` closes
+  out a paper experiment: with the market closed and the account flat, it
+  backs the table up, copies trades.db to `experiments/` while trades.db is
+  still the store, empties the table and starts the next experiment on
+  DynamoDB. It needs the stack's name typed as confirmation. An archive now
+  takes older rejections only from the frozen copy the table's marker names,
+  so an earlier experiment's rows never come back. ([#86])
 - **DynamoDB trade store, behind a switch** — trades.db is downloaded from
   S3 and uploaded back on every run, so two Lambdas running at once erased
   each other's writes. A per-stack DynamoDB table now holds the same rows
@@ -252,6 +272,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#80]: https://github.com/vishwakt/LambdaForge/pull/80
 [#81]: https://github.com/vishwakt/LambdaForge/pull/81
 [#85]: https://github.com/vishwakt/LambdaForge/pull/85
+[#86]: https://github.com/vishwakt/LambdaForge/pull/86
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

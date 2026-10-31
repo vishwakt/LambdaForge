@@ -53,7 +53,7 @@ risk parameters and flip the kill switch without redeploying.
 | `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
 | `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
-| `TelegramOpsFunction` | Telegram webhook via Lambda Function URL (paper stack only) | `/<bot> status\|positions\|strategies\|on\|off\|kill\|alive` for all three stacks; `kill` invokes that stack's `KillSwitchFunction`, `on`/`off` write the `strategies` parameter. Secret-header check + chat-ID allowlist; settings under `/stock-bot-ops/` |
+| `TelegramOpsFunction` | Telegram webhook via Lambda Function URL (paper stack only) | `/<bot> status\|positions\|strategies\|on\|off\|kill\|alive` for every bot in `bots.json`; `kill` invokes that stack's `KillSwitchFunction`, `on`/`off` write the `strategies` parameter. Secret-header check + chat-ID allowlist; settings under `/stock-bot-ops/` |
 
 > The four cron triggers are EventBridge Scheduler schedules with `ScheduleExpressionTimezone: America/New_York` — cron is evaluated in Eastern local time, so the times above hold across daylight-saving transitions. (Classic EventBridge rules evaluate cron in UTC only.) The stop-loss monitor is a plain `rate()` rule; the handler no-ops outside market hours.
 
@@ -212,15 +212,18 @@ for `strategies` and `kill-switch` — from the Telegram bot.
 ## Multi-Stack Architecture
 
 The same SAM template deploys independent stacks for paper, live, and experimental trading.
-No shared state between stacks.
+No shared state between stacks. [`bots.json`](bots.json) lists them, and a bot's name gives
+every other name; the template takes it as `BotSuffix` ("" for stack 1, `-2` for Bot 2).
+Build & Deploy deploys each `deploy: auto` bot through `deploy-stack.yml`; a stack's first
+deploy runs `init`, so a new bot starts on DynamoDB.
 
-| | Paper | Live | Bot 2 (Experimental) |
-|---|---|---|---|
-| Stack | `stock-trading-bot` | `stock-trading-bot-live` | `stock-trading-bot-2` |
-| SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` |
-| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` |
-| Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Manual `workflow_dispatch` + typed `DEPLOY-LIVE` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` |
-| Strategies | MACD, Bollinger, Z-Score (`config.json`) | MACD, Bollinger, Z-Score (`config.json`) | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) |
+| | Paper | Live | Bot 2 (Experimental) | Bot 3 (Experimental) |
+|---|---|---|---|---|
+| Stack | `stock-trading-bot` | `stock-trading-bot-live` | `stock-trading-bot-2` | `stock-trading-bot-3` |
+| SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` | `/stock-bot-3/` |
+| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` | `stock-trader-db-3-{AccountId}` |
+| Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Manual `workflow_dispatch` + typed `DEPLOY-LIVE` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` |
+| Strategies | MACD, Bollinger, Z-Score (`config.json`) | MACD, Bollinger, Z-Score (`config.json`) | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) | `config.json` until set from Telegram |
 
 ---
 

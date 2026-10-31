@@ -246,3 +246,149 @@ class _FakeS3:
 
     def upload_file(self, *args):
         self.seen.append("upload")
+
+
+class TestFreshStart:
+    """init starts a stack with no history on the table; reset closes out a
+    paper experiment and starts the next one empty, losing nothing."""
+
+    STACK = "stock-trading-bot-9"
+
+    @pytest.fixture
+    def stack(self, dynamo_table, tmp_path, monkeypatch):
+        import boto3
+
+        s3 = boto3.client("s3", region_name="us-east-1")
+        s3.create_bucket(Bucket="bucket")
+        state = {
+            "store": "sqlite",
+            "trading_mode": "paper",
+            "market_open": False,
+            "positions": [],
+            "open_orders": 0,
+            "s3": s3,
+            "table": DynamoTradeLog(TABLE, resource=dynamo_table),
+        }
+        monkeypatch.setattr(handlers, "S3_BUCKET", "bucket")
+        monkeypatch.setattr(handlers, "MIGRATION_DB_PATH", str(tmp_path / "migrate.db"))
+        monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", f"{self.STACK}-migrate")
+        monkeypatch.setattr(
+            handlers,
+            "load_config",
+            lambda: SimpleNamespace(
+                store=state["store"],
+                table_name=TABLE,
+                trading_mode=state["trading_mode"],
+                db_path="unused",
+            ),
+        )
+        monkeypatch.setattr(handlers, "_set_store", lambda v: state.update(store=v))
+        monkeypatch.setattr(handlers, "_market_open", lambda: state["market_open"])
+        monkeypatch.setattr(handlers, "get_trading_client", lambda paper: None)
+        monkeypatch.setattr(handlers, "get_positions", lambda c: state["positions"])
+        monkeypatch.setattr(
+            handlers, "count_open_orders", lambda c: state["open_orders"]
+        )
+        return state
+
+    @staticmethod
+    def upload_trades_db(stack, tmp_path, history=True):
+        path = str(tmp_path / "upload.db")
+        log = TradeLog(path)
+        if history:
+            trading_day(log)
+        stack["s3"].upload_file(path, "bucket", "trades.db")
+        return path
+
+    def run(self, mode, **payload):
+        return handlers.migrate_handler({"mode": mode, **payload}, None)
+
+    def marker(self, stack):
+        return stack["table"].table.get_item(Key=MIGRATION_KEY).get("Item")
+
+    def test_init_starts_a_new_stack_on_the_table(self, stack):
+        report = self.run("init")
+        assert report["ok"] and stack["store"] == "dynamodb"
+        assert self.marker(stack)["started_by"] == "init"
+        make_trade_log(config("dynamodb"))  # the guard now lets runs use it
+
+    def test_init_accepts_the_empty_trades_db_a_first_run_uploads(
+        self, stack, tmp_path
+    ):
+        self.upload_trades_db(stack, tmp_path, history=False)
+        assert self.run("init")["ok"]
+
+    def test_init_twice_is_harmless(self, stack):
+        self.run("init")
+        report = self.run("init")
+        assert report["ok"] and report["note"] == "already started"
+
+    def test_init_refuses_a_table_with_rows(self, stack):
+        stack["table"].save_daily_snapshot(1000.0, 500.0, 1000.0, 2)
+        report = self.run("init")
+        assert not report["ok"] and stack["store"] == "sqlite"
+
+    def test_init_refuses_a_trades_db_with_history(self, stack, tmp_path):
+        self.upload_trades_db(stack, tmp_path)
+        report = self.run("init")
+        assert not report["ok"] and "trades.db has" in report["error"]
+        assert self.marker(stack) is None and stack["store"] == "sqlite"
+
+    @pytest.mark.parametrize("confirm", [None, "stock-trading-bot-2"])
+    def test_reset_needs_this_stacks_name(self, stack, confirm):
+        stack["table"].save_daily_snapshot(1000.0, 500.0, 1000.0, 2)
+        report = self.run("reset", **({"confirm": confirm} if confirm else {}))
+        assert not report["ok"] and self.STACK in report["error"]
+        assert not stack["table"].is_empty()
+
+    @pytest.mark.parametrize(
+        ("change", "error"),
+        [
+            ({"market_open": True}, "market is open"),
+            ({"positions": [{"symbol": "AAA"}]}, "1 positions"),
+            ({"open_orders": 2}, "2 open orders"),
+            ({"trading_mode": "live"}, "paper accounts"),
+        ],
+    )
+    def test_reset_refuses_unless_closed_flat_and_paper(self, stack, change, error):
+        stack.update(change)
+        stack["table"].save_daily_snapshot(1000.0, 500.0, 1000.0, 2)
+        report = self.run("reset", confirm=self.STACK)
+        assert not report["ok"] and error in report["error"]
+        assert not stack["table"].is_empty()
+
+    def test_reset_keeps_the_old_experiment_and_starts_empty(self, stack, tmp_path):
+        path = self.upload_trades_db(stack, tmp_path)
+        migrate.load(path, stack["table"])
+        stack["store"] = "shadow"
+
+        report = self.run("reset", confirm=self.STACK)
+
+        assert report["ok"] and stack["store"] == "dynamodb"
+        # the old experiment is kept: a table backup and trades.db's bytes
+        assert report["backup"]
+        copy = tmp_path / "copy.db"
+        stack["s3"].download_file("bucket", report["trades_db_copy"], str(copy))
+        assert report["trades_db_copy"].startswith("experiments/")
+        assert copy.read_bytes() == open(path, "rb").read()
+        # and the new one starts empty, with ids from 1
+        items = list(stack["table"].scan_items())
+        assert [(i["PK"], i["SK"]) for i in items] == [("META", "MIGRATION")]
+        assert self.marker(stack)["previous_backup"] == report["backup"]
+        new_log = make_trade_log(config("dynamodb"))
+        assert (
+            new_log.log_trade("AAA", "buy", 1, "market", "b", "macd", 0.8, "r", 9, None)
+            == 1
+        )
+
+    def test_after_a_reset_the_archive_has_none_of_the_old_rows(self, stack, tmp_path):
+        path = self.upload_trades_db(stack, tmp_path)
+        stack["s3"].upload_file(path, "bucket", handlers._frozen_key(TABLE))
+        migrate.load(path, stack["table"])
+        stack["store"] = "dynamodb"
+        stack["table"].table.put_item(Item={**MIGRATION_KEY, "frozen": "old"})
+
+        self.run("reset", confirm=self.STACK)
+        exported = handlers._export_table(stack["table"], str(tmp_path / "out.db"))
+
+        assert exported == {"trades": 0, "daily_snapshots": 0, "risk_rejections": 0}

@@ -7,7 +7,7 @@ runs with that stack's credentials and its S3-synced trades.db; reads use
 the Alpaca credentials stored under the stack's SSM prefix.
 
 A bot is addressed by its SSM prefix without slashes: ``stock-bot``,
-``stock-bot-2``, ``stock-bot-live``.
+``stock-bot-2``, ``stock-bot-live``. The list comes from bots.json.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import boto3
 from alpaca.trading.client import TradingClient
@@ -25,7 +26,9 @@ from src.strategies import STRATEGIES
 
 logger = logging.getLogger("stock-trader")
 
-BOTS = ("stock-bot", "stock-bot-2", "stock-bot-live")
+# Every bot the repo deploys (bots.json, at the repo root and in the image).
+REGISTRY = Path(__file__).resolve().parent.parent / "bots.json"
+BOTS = tuple(b["name"] for b in json.loads(REGISTRY.read_text())["bots"])
 
 # Every strategy the deployed image can run, in registry order.
 AVAILABLE_STRATEGIES = tuple(STRATEGIES)
