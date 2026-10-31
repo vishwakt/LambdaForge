@@ -19,6 +19,11 @@ Modes, each returning a JSON report with ``ok``:
   store=sqlite. Only from store=dynamodb.
 - ``health``: store=dynamodb, the table is reachable, and every order Alpaca
   filled or accepted today has a row.
+- ``init``: start a stack with no history straight on DynamoDB (a new
+  stack's first deploy runs it). Refuses a table or trades.db with rows.
+- ``reset``: close out a paper experiment and start the next one empty on
+  DynamoDB. Market closed and the account flat; backs the table up and
+  copies trades.db to experiments/ first. Needs {"confirm": "<stack>"}.
 
 Rejections copied in are the last REJECTION_COPY_DAYS only: the app reads
 the last hour of them, and the full history stays in the frozen trades.db

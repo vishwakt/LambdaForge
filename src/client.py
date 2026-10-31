@@ -217,6 +217,15 @@ def get_open_buy_symbols(trading_client: TradingClient) -> set[str]:
     return {o.symbol for o in orders}
 
 
+def count_open_orders(trading_client: TradingClient) -> int:
+    """Orders still open at the broker, either side. Raises on failure."""
+    return len(
+        trading_client.get_orders(
+            GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500)
+        )
+    )
+
+
 def get_orders_since(trading_client: TradingClient, since) -> list[dict]:
     """Every order submitted at or after *since*, in any state."""
     orders = trading_client.get_orders(

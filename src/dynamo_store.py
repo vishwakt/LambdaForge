@@ -606,6 +606,23 @@ class DynamoTradeLog:
                 return
             kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
 
+    def is_empty(self) -> bool:
+        return not self.table.scan(Limit=1, ProjectionExpression="PK")["Items"]
+
+    def delete_all(self) -> int:
+        """Delete every item, the sequence and migration marker included."""
+        kwargs: dict = {"ProjectionExpression": "PK, SK"}
+        count = 0
+        with self.table.batch_writer() as batch:
+            while True:
+                page = self.table.scan(**kwargs)
+                for key in page["Items"]:
+                    batch.delete_item(Key=key)
+                    count += 1
+                if "LastEvaluatedKey" not in page:
+                    return count
+                kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
     def all_rows(self) -> dict[str, list[dict]]:
         """Every trade, snapshot and rejection, in SQLite's row shape."""
         tables: dict[str, list[dict]] = {
