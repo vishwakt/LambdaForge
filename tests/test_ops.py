@@ -13,15 +13,18 @@ class TestBotAddressing:
     @pytest.mark.parametrize(
         "name,prefix,stack",
         [
-            ("stock-bot", "/stock-bot/", "stock-trading-bot"),
             ("stock-bot-2", "/stock-bot-2/", "stock-trading-bot-2"),
             ("stock-bot-live", "/stock-bot-live/", "stock-trading-bot-live"),
+            ("stock-bot-3", "/stock-bot-3/", "stock-trading-bot-3"),
         ],
     )
     def test_prefix_and_stack(self, name, prefix, stack):
         bot = ops.resolve_bot(name)
         assert bot.prefix == prefix
         assert bot.stack == stack
+
+    def test_stack_1_only_hosts_ops_so_it_is_not_a_bot(self):
+        assert ops.resolve_bot("stock-bot") is None
 
     def test_unknown_bot(self):
         assert ops.resolve_bot("stock-bot-9") is None

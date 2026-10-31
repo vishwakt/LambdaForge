@@ -31,9 +31,11 @@ Conditions:
   # The Telegram ops function controls every stack, so it is deployed once,
   # alongside the paper stack.
   IsPaper: !Equals [!Ref Environment, paper]
-  # Stack 1 (paper) is archived, not migrated: its Alpaca keys no longer
-  # work, so it gets no table (docs/DYNAMODB-PLAN.md, 7.5).
-  HasTradesTable: !Not [!Equals [!Ref Environment, paper]]
+  # Stack 1 (paper) only hosts the Telegram ops function. Its Alpaca keys no
+  # longer work, so it runs no trading functions and has no table
+  # (docs/DYNAMODB-PLAN.md, 7.5): every run would fail, and each failure
+  # would email.
+  IsBot: !Not [!Equals [!Ref Environment, paper]]
 
 Globals:
   Function:
@@ -110,7 +112,7 @@ Resources:
   # One item per trades.db row; see src/dynamo_store.py for the keys.
   TradesTable:
     Type: AWS::DynamoDB::Table
-    Condition: HasTradesTable
+    Condition: IsBot
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -188,6 +190,7 @@ Resources:
   # IAM role for Lambda functions
   TradingBotRole:
     Type: AWS::IAM::Role
+    Condition: IsBot
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -244,31 +247,29 @@ Resources:
                   - ssm:PutParameter
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/stock-bot${BotSuffix}/*"
-        - !If
-          - HasTradesTable
-          - PolicyName: DynamoDBTradesTable
-            PolicyDocument:
-              Version: "2012-10-17"
-              Statement:
-                - Effect: Allow
-                  Action:
-                    - dynamodb:GetItem
-                    - dynamodb:PutItem
-                    - dynamodb:UpdateItem
-                    - dynamodb:ConditionCheckItem
-                    - dynamodb:Query
-                    - dynamodb:Scan
-                    - dynamodb:BatchWriteItem
-                    - dynamodb:DescribeTable
-                    - dynamodb:CreateBackup
-                  Resource:
-                    - !GetAtt TradesTable.Arn
-                    - !Sub "${TradesTable.Arn}/index/*"
-          - !Ref AWS::NoValue
+        - PolicyName: DynamoDBTradesTable
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DescribeTable
+                  - dynamodb:CreateBackup
+                Resource:
+                  - !GetAtt TradesTable.Arn
+                  - !Sub "${TradesTable.Arn}/index/*"
 
   # Lambda Function: Daily Scan (runs at 09:30 ET weekdays — market open)
   DailyScanFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -310,6 +311,7 @@ Resources:
   # the handler no-ops outside market hours, so a plain rate() rule is fine here)
   MonitorStopsFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -339,6 +341,7 @@ Resources:
   # Lambda Function: End-of-Day Snapshot (runs at 15:55 ET weekdays)
   EodSnapshotFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -367,6 +370,7 @@ Resources:
   # Lambda Function: Weekly Digest (runs Friday 15:55 ET)
   WeeklyDigestFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -395,6 +399,7 @@ Resources:
   # Lambda Function: Hourly Digest (runs every 60 min during market hours)
   HourlyDigestFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -423,6 +428,7 @@ Resources:
   # Lambda Function: Kill Switch (manual invoke only, no schedule)
   KillSwitchFunction:
     Type: AWS::Serverless::Function
+    Condition: IsBot
     Properties:
       PackageType: Image
       ImageConfig:
@@ -439,7 +445,7 @@ Resources:
   # hand; no schedule). Modes are in src/migrate.py.
   MigrateFunction:
     Type: AWS::Serverless::Function
-    Condition: HasTradesTable
+    Condition: IsBot
     Properties:
       FunctionName: !Sub "${AWS::StackName}-migrate"
       PackageType: Image
@@ -517,9 +523,11 @@ Outputs:
     Description: Register with Telegram via setWebhook (see README)
     Value: !GetAtt TelegramOpsFunctionUrl.FunctionUrl
   DailyScanFunctionArn:
+    Condition: IsBot
     Description: Daily Scan Lambda ARN
     Value: !GetAtt DailyScanFunction.Arn
   MonitorStopsFunctionArn:
+    Condition: IsBot
     Description: Stop Monitor Lambda ARN
     Value: !GetAtt MonitorStopsFunction.Arn
   TradesDbBucketName:
@@ -529,13 +537,14 @@ Outputs:
     Description: SNS topic ARN for trade alerts
     Value: !Ref TradingAlertsTopic
   KillSwitchFunctionName:
+    Condition: IsBot
     Description: Kill Switch Lambda function name (invoke with aws lambda invoke)
     Value: !Ref KillSwitchFunction
   TradesTableName:
-    Condition: HasTradesTable
+    Condition: IsBot
     Description: DynamoDB trade store
     Value: !Ref TradesTable
   MigrateFunctionName:
-    Condition: HasTradesTable
+    Condition: IsBot
     Description: Store migration Lambda (see src/migrate.py)
     Value: !Ref MigrateFunction

@@ -26,9 +26,14 @@ from src.strategies import STRATEGIES
 
 logger = logging.getLogger("stock-trader")
 
-# Every bot the repo deploys (bots.json, at the repo root and in the image).
+# Every bot the repo deploys (bots.json, at the repo root and in the image),
+# except stack 1, which only hosts this ops layer's Telegram function.
 REGISTRY = Path(__file__).resolve().parent.parent / "bots.json"
-BOTS = tuple(b["name"] for b in json.loads(REGISTRY.read_text())["bots"])
+BOTS = tuple(
+    b["name"]
+    for b in json.loads(REGISTRY.read_text())["bots"]
+    if b["environment"] != "paper"
+)
 
 # Every strategy the deployed image can run, in registry order.
 AVAILABLE_STRATEGIES = tuple(STRATEGIES)

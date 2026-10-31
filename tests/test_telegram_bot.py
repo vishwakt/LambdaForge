@@ -106,9 +106,9 @@ class TestMenus:
         assert reply.keyboard == BOTS_KEYBOARD
 
     def test_unknown_op_keeps_you_on_the_bot_menu(self):
-        reply = run_command("/stock-bot dance")
+        reply = run_command("/stock-bot-2 dance")
         assert "Unknown command 'dance'" in reply.text
-        assert reply.keyboard == bot_keyboard(ops.Bot("stock-bot"))
+        assert reply.keyboard == bot_keyboard(ops.Bot("stock-bot-2"))
 
 
 class TestStatus:
@@ -251,12 +251,12 @@ class TestKillFlow:
             raise RuntimeError("AccessDenied on ssm:GetParametersByPath")
 
         monkeypatch.setattr(ops, "positions", boom)
-        reply = run_command("/stock-bot positions")
+        reply = run_command("/stock-bot-2 positions")
         assert (
             reply.text
-            == "stock-bot positions failed: AccessDenied on ssm:GetParametersByPath"
+            == "stock-bot-2 positions failed: AccessDenied on ssm:GetParametersByPath"
         )
-        assert reply.keyboard == bot_keyboard(ops.Bot("stock-bot"))
+        assert reply.keyboard == bot_keyboard(ops.Bot("stock-bot-2"))
 
 
 class TestHandleUpdate:
@@ -435,4 +435,4 @@ class TestPoll:
         assert offsets == [None, 12]
         sent = [p for m, p in calls if m == "sendMessage"]
         assert [p["chat_id"] for p in sent] == [1]
-        assert sent[0]["reply_markup"]["keyboard"][0][0]["text"] == "/stock-bot"
+        assert sent[0]["reply_markup"]["keyboard"][0][0]["text"] == "/stock-bot-2"

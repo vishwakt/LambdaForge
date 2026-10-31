@@ -215,7 +215,8 @@ The same SAM template deploys independent stacks for paper, live, and experiment
 No shared state between stacks. [`bots.json`](bots.json) lists them, and a bot's name gives
 every other name; the template takes it as `BotSuffix` ("" for stack 1, `-2` for Bot 2).
 Build & Deploy deploys each `deploy: auto` bot through `deploy-stack.yml`; a stack's first
-deploy runs `init`, so a new bot starts on DynamoDB.
+deploy runs `init`, so a new bot starts on DynamoDB. Stack 1's Alpaca keys no longer work, so
+it runs only `TelegramOpsFunction` (the `IsBot` condition leaves out every trading function).
 
 | | Paper | Live | Bot 2 (Experimental) | Bot 3 (Experimental) |
 |---|---|---|---|---|

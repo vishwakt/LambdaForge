@@ -291,7 +291,8 @@ up on its next scheduled run — no redeploy, no restart, and each bot can run a
 different set.
 
 Bot names are the SSM prefixes without slashes, as listed in `bots.json`:
-`stock-bot`, `stock-bot-2`, `stock-bot-live`, `stock-bot-3`. Only chat IDs on the allowlist get a reply; anyone else is
+`stock-bot-2`, `stock-bot-live`, `stock-bot-3`. Stack 1 (`stock-bot`) only
+hosts this Telegram function and runs no trading functions. Only chat IDs on the allowlist get a reply; anyone else is
 ignored silently. `kill` runs inside the target stack's own Lambda, so the
 bot never holds Alpaca credentials of its own.
 
