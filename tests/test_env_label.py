@@ -21,9 +21,13 @@ class TestEnvLabel:
         with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot-2/"}):
             assert _get_env_label() == "[BOT-2] "
 
+    def test_any_other_bot_is_labelled_by_its_name(self):
+        with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot-3/"}):
+            assert _get_env_label() == "[BOT-3] "
+
     def test_unknown_prefix(self):
-        with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot-custom/"}):
-            assert _get_env_label() == "[STOCK-BOT-CUSTOM] "
+        with patch.dict(os.environ, {"SSM_PREFIX": "/trader-x/"}):
+            assert _get_env_label() == "[TRADER-X] "
 
     def test_no_prefix(self):
         with patch.dict(os.environ, {}, clear=True):
