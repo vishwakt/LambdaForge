@@ -5,10 +5,12 @@ written once to ``archive/YYYY-Www.json.gz`` (skipped if it already exists,
 so the export is idempotent and never overwritten). A lifecycle rule on the
 ``archive/`` prefix transitions objects straight to Deep Archive.
 
-Each export is a complete dump of the trades, daily_snapshots, and
-risk_rejections tables, so any single archive object contains the full
-history to that point. Rows stream from SQLite through the compressor to a
-temp file, so memory stays flat however large the tables grow.
+Each export is a complete dump of the table's trades, daily snapshots and
+risk rejections, so any single archive object contains every trade and
+snapshot to that point. The table keeps rejections for 90 days, so older
+ones live in the earlier weekly objects. Rows stream from the table through
+the compressor to a temp file, so memory stays flat however large the
+history grows.
 """
 
 from __future__ import annotations
@@ -17,8 +19,8 @@ import gzip
 import io
 import json
 import logging
-import sqlite3
 import tempfile
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta, timezone
 from typing import BinaryIO
 
@@ -41,33 +43,29 @@ def previous_iso_week(today: date) -> tuple[int, int]:
     return iso[0], iso[1]
 
 
-def export_tables(db_path: str, out: BinaryIO) -> None:
+def export_tables(tables: dict[str, Iterable[dict]], out: BinaryIO) -> None:
     """Write the audit tables to *out* as gzipped JSON, one row at a time.
 
-    The JSON is what ``json.dumps(payload, default=str)`` of the whole
-    payload gives, but no table is held in memory. Building it all at once
-    (every row as a dict, then the string, the bytes and the compressed
-    copy) ran Bot 2's 512 MB EOD Lambda out of memory.
+    *tables* maps each of ARCHIVE_TABLES to its rows (DynamoTradeLog's
+    export_rows). The JSON is what ``json.dumps(payload, default=str)`` of
+    the whole payload gives, but no table is held in memory. Building it all
+    at once (every row as a dict, then the string, the bytes and the
+    compressed copy) ran Bot 2's 512 MB EOD Lambda out of memory.
     """
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        # Closing the wrapper closes the GzipFile, which writes its trailer,
-        # but not *out*, which the caller still has to upload.
-        with io.TextIOWrapper(
-            gzip.GzipFile(fileobj=out, mode="wb"), encoding="utf-8"
-        ) as text:
-            exported_at = json.dumps(datetime.now(timezone.utc).isoformat())
-            text.write(f'{{"exported_at": {exported_at}, "tables": {{')
-            for i, name in enumerate(ARCHIVE_TABLES):
-                text.write(f"{', ' if i else ''}{json.dumps(name)}: [")
-                for j, row in enumerate(conn.execute(f"SELECT * FROM {name}")):
-                    text.write(", " if j else "")
-                    text.write(json.dumps(dict(row), default=str))
-                text.write("]")
-            text.write("}}")
-    finally:
-        conn.close()
+    # Closing the wrapper closes the GzipFile, which writes its trailer, but
+    # not *out*, which the caller still has to upload.
+    with io.TextIOWrapper(
+        gzip.GzipFile(fileobj=out, mode="wb"), encoding="utf-8"
+    ) as text:
+        exported_at = json.dumps(datetime.now(timezone.utc).isoformat())
+        text.write(f'{{"exported_at": {exported_at}, "tables": {{')
+        for i, name in enumerate(ARCHIVE_TABLES):
+            text.write(f"{', ' if i else ''}{json.dumps(name)}: [")
+            for j, row in enumerate(tables[name]):
+                text.write(", " if j else "")
+                text.write(json.dumps(row, default=str))
+            text.write("]")
+        text.write("}}")
 
 
 def _object_exists(s3_client, bucket: str, key: str) -> bool:
@@ -81,12 +79,12 @@ def _object_exists(s3_client, bucket: str, key: str) -> bool:
 
 
 def archive_previous_week(
-    db_path: str,
+    store,
     bucket: str,
     s3_client,
     today: date | None = None,
 ) -> str | None:
-    """Write last week's archive object if it doesn't exist yet.
+    """Write last week's archive of *store*'s table if it doesn't exist yet.
 
     Returns the S3 key when an object was written, None when skipped.
     Write-once: an existing key is never overwritten, so repeated EOD runs
@@ -99,7 +97,7 @@ def archive_previous_week(
         return None
 
     with tempfile.TemporaryFile() as body:
-        export_tables(db_path, body)
+        export_tables(store.export_rows(), body)
         size = body.tell()
         body.seek(0)
         s3_client.upload_fileobj(

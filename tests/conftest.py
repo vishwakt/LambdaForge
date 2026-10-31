@@ -4,15 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.trade_log import TradeLog
-
-
-@pytest.fixture
-def tmp_trade_log(tmp_path):
-    """Create a TradeLog backed by a temporary SQLite database."""
-    db_path = str(tmp_path / "test_trades.db")
-    return TradeLog(db_path)
-
 
 @pytest.fixture
 def sample_bars():
@@ -111,24 +102,24 @@ def dynamo_trade_log(dynamo_table):
     return DynamoTradeLog("stock-trader-test", resource=dynamo_table)
 
 
-@pytest.fixture(params=["sqlite", "dynamodb"])
-def any_trade_log(request, tmp_path):
-    """The same tests against both stores."""
-    if request.param == "sqlite":
-        return TradeLog(str(tmp_path / "trades.db"))
-    return request.getfixturevalue("dynamo_trade_log")
+@pytest.fixture
+def tmp_trade_log(dynamo_trade_log):
+    """A trade log on an empty in-process table."""
+    return dynamo_trade_log
 
 
-@pytest.fixture(params=["sqlite", "dynamodb"])
-def engine_config(request, tmp_path):
-    """An engine config for each store, so engine tests run against both."""
+@pytest.fixture
+def any_trade_log(dynamo_trade_log):
+    """The trade log store tests run against (the table is the only store)."""
+    return dynamo_trade_log
+
+
+@pytest.fixture
+def engine_config(dynamo_table):
+    """An engine config on a started in-process table."""
     from src.config import AppConfig
 
-    config = AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    if request.param == "dynamodb":
-        resource = request.getfixturevalue("dynamo_table")
-        resource.Table("stock-trader-test").put_item(
-            Item={"PK": "META", "SK": "MIGRATION"}
-        )
-        config.store, config.table_name = "dynamodb", "stock-trader-test"
-    return config
+    dynamo_table.Table("stock-trader-test").put_item(
+        Item={"PK": "META", "SK": "MIGRATION"}
+    )
+    return AppConfig(notifier="console", table_name="stock-trader-test")

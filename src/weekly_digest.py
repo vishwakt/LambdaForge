@@ -1,6 +1,6 @@
 """Weekly performance digest — assembles the Friday EOD report.
 
-Reuses existing TradeLog query methods and notifier formatting helpers.
+Reuses the trade log's query methods and notifier formatting helpers.
 Returns plain text suitable for SNS email delivery.
 """
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from src.config import AppConfig
+from src.dynamo_store import DynamoTradeLog
 from src.notifier import _format_pct, _progress_bar
-from src.trade_log import TradeLog
 
 
 def _week_bounds() -> tuple[str, str]:
@@ -62,7 +62,7 @@ def _equity_curve(snapshots: list[dict], width: int = 40) -> str:
 
 
 def generate_weekly_digest(
-    trade_log: TradeLog,
+    trade_log: DynamoTradeLog,
     config: AppConfig,
     account_info: dict,
     open_positions: list[dict],

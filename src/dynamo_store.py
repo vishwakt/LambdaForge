@@ -1,14 +1,14 @@
-"""DynamoDB trade log: the TradeLog interface, one item per SQLite row.
+"""DynamoDB trade log: the bot's only trade store (src/store.py).
 
-Rows keep their SQLite shape, ids included, so history moves between the
-two stores and back without translation (migration, shadow writes, the
-rollback export and the weekly archive all rely on that):
+Each item is one row, in the shape trades.db used (the column tuples below),
+which is also the shape the weekly archive writes out:
 
     PK               SK                    one per
-    TRADE#<id>       TRADE                 trades row
-    SNAPSHOT         <date>                daily_snapshots row
-    REJECT#<date>    <timestamp>#<key>     risk_rejections row, kept 90 days
+    TRADE#<id>       TRADE                 trade
+    SNAPSHOT         <date>                daily snapshot
+    REJECT#<date>    <timestamp>#<key>     risk rejection, kept 90 days
     META             SEQ#trades            the last trade id handed out
+    META             MIGRATION             when the table was started
 
 GSI1 (TRADES, <timestamp>#<id>) is the trade feed in time order. GSI2 is
 sparse: only buys still pending or open carry its keys, so the open-lot
@@ -16,8 +16,8 @@ queries read a few dozen items rather than the history. Recording a sell
 and closing the lot it exits is one transaction, so a crash between the two
 can't leave a lot looking open forever.
 
-Every write goes to its own item, so two Lambdas running at once no longer
-erase each other's work the way two uploads of trades.db did.
+Every write goes to its own item, so two Lambdas running at once never
+erase each other's work.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ def _attrs(row: dict) -> dict:
 
 
 def _row(item: dict, columns: tuple[str, ...]) -> dict:
-    """An item back in SQLite's shape: every column, numbers as int or float."""
+    """An item as a row: every column, numbers as int or float."""
 
     def value(col):
         v = item.get(col)
@@ -140,12 +140,12 @@ def _row(item: dict, columns: tuple[str, ...]) -> dict:
 
 
 def _utc_now() -> str:
-    """Naive UTC ISO timestamp, the format trades.db has always used."""
+    """Naive UTC ISO timestamp, the format trades have always used."""
     return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
-def _sqlite_now() -> str:
-    """SQLite's datetime('now'): UTC, second precision, a space separator."""
+def _created_at_now() -> str:
+    """created_at's format: UTC, second precision, a space separator."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -153,8 +153,8 @@ def _trade_key(trade_id: int) -> dict:
     return {"PK": f"TRADE#{trade_id}", "SK": "TRADE"}
 
 
-def trade_item(row: dict, open_lot: bool, closed_by: int | None = None) -> dict:
-    """The table item for a trades row."""
+def trade_item(row: dict, open_lot: bool) -> dict:
+    """The table item for a trade row."""
     item = {
         **_attrs(row),
         **_trade_key(row["id"]),
@@ -163,25 +163,13 @@ def trade_item(row: dict, open_lot: bool, closed_by: int | None = None) -> dict:
     }
     if open_lot:
         item = {**item, "GSI2PK": "LOT", "GSI2SK": f"{row['id']:012d}"}
-    if closed_by is not None:
-        item = {**item, "closed_by": Decimal(closed_by)}
     return item
-
-
-def is_open_lot(row: dict, exit_id: int | None) -> bool:
-    """A buy still pending or held: not ended unfilled, and no exit on record."""
-    return row["side"] == "buy" and row["status"] in LOT_STATUSES and exit_id is None
-
-
-def snapshot_item(row: dict) -> dict:
-    return {**_attrs(row), "PK": "SNAPSHOT", "SK": row["date"]}
 
 
 def rejection_item(row: dict, key: str) -> dict:
     """A rejection, kept REJECTION_TTL_DAYS after it happened.
 
-    *key* makes the sort key unique: the SQLite id when copying a row, a
-    random suffix for a new one.
+    *key* makes the sort key unique.
     """
     ts = row["timestamp"]
     expires = datetime.fromisoformat(ts[:19]) + timedelta(days=REJECTION_TTL_DAYS)
@@ -197,11 +185,11 @@ def _is_condition_failure(error: ClientError) -> bool:
     return error.response["Error"]["Code"] == "ConditionalCheckFailedException"
 
 
-# --- Pure aggregations (the SQL in TradeLog, over rows) ---
+# --- Pure aggregations over rows ---
 
 
 def trade_stats(rows: list[dict]) -> dict:
-    """TradeLog.get_trade_stats over a list of trade rows."""
+    """Aggregate statistics over a list of trade rows."""
     pnl_values = [
         r["pnl"] for r in rows if r["side"] == "sell" and r["pnl"] is not None
     ]
@@ -227,7 +215,7 @@ def trade_stats(rows: list[dict]) -> dict:
 
 
 def strategy_stats(rows: list[dict]) -> list[dict]:
-    """TradeLog.get_strategy_stats over a list of trade rows."""
+    """Per-strategy statistics over a list of trade rows, best first."""
     closed = [r for r in rows if r["side"] == "sell" and r["pnl"] is not None]
 
     def stats(strategy: str) -> dict:
@@ -272,16 +260,10 @@ class DynamoTradeLog:
         stop_loss: float | None,
         take_profit: float | None,
         parent_trade_id: int | None = None,
-        *,
-        trade_id: int | None = None,
     ) -> int:
-        """Insert a new trade record. Returns the trade ID.
-
-        Shadow writes pass trades.db's *trade_id* so both stores use the same
-        ids; otherwise the next id in the sequence is used.
-        """
+        """Insert a new trade record. Returns the trade ID, the next in sequence."""
         row = {
-            "id": trade_id or self._next_trade_id(),
+            "id": self._next_trade_id(),
             "timestamp": _utc_now(),
             "symbol": symbol,
             "side": side,
@@ -295,7 +277,7 @@ class DynamoTradeLog:
             "stop_loss": stop_loss,
             "take_profit": take_profit,
             "parent_trade_id": parent_trade_id,
-            "created_at": _sqlite_now(),
+            "created_at": _created_at_now(),
         }
         self._insert_trade(row)
         return row["id"]
@@ -348,12 +330,10 @@ class DynamoTradeLog:
         """The price recovered above the stop before a second run confirmed it."""
         self._update_trade(trade_id, {"stop_breached_at": None})
 
-    def close_lot_reconciled(
-        self, trade_id: int, reason: str, *, exit_id: int | None = None
-    ) -> int:
+    def close_lot_reconciled(self, trade_id: int, reason: str) -> int:
         """Close a lot the broker no longer holds, without inventing a trade."""
         lot = self.get_trade_row(trade_id)
-        exit_id = exit_id or self._next_trade_id()
+        exit_id = self._next_trade_id()
         self._insert_trade(
             {
                 "id": exit_id,
@@ -367,7 +347,7 @@ class DynamoTradeLog:
                 "strategy": lot["strategy"],
                 "reason": reason,
                 "parent_trade_id": trade_id,
-                "created_at": _sqlite_now(),
+                "created_at": _created_at_now(),
             }
         )
         return exit_id
@@ -470,7 +450,7 @@ class DynamoTradeLog:
             Key={"PK": "SNAPSHOT", "SK": today},
             UpdateExpression=update,
             ExpressionAttributeNames={**names, "#created_at": "created_at"},
-            ExpressionAttributeValues={**attr_values, ":now": _sqlite_now()},
+            ExpressionAttributeValues={**attr_values, ":now": _created_at_now()},
         )
 
     def get_snapshot(self, date_str: str | None = None) -> dict | None:
@@ -526,7 +506,7 @@ class DynamoTradeLog:
             "action": action,
             "confidence": confidence,
             "rejection_reason": rejection_reason,
-            "created_at": _sqlite_now(),
+            "created_at": _created_at_now(),
         }
         self.table.put_item(Item=rejection_item(row, uuid.uuid4().hex[:8]))
 
@@ -552,7 +532,7 @@ class DynamoTradeLog:
         rows = (r for day in _days_back_to(oldest) for r in self._rejections(day))
         return list(islice(rows, limit))
 
-    # --- Whole rows: used by migration, shadow writes and export ---
+    # --- Whole rows and the whole table: the archive and the table's lifecycle ---
 
     def get_trade_row(self, trade_id: int) -> dict | None:
         item = self.table.get_item(Key=_trade_key(trade_id), ConsistentRead=True).get(
@@ -560,31 +540,23 @@ class DynamoTradeLog:
         )
         return _row(item, TRADE_COLUMNS) if item else None
 
-    def put_rejection_row(self, row: dict):
-        """Write a risk_rejections row, keyed by its SQLite id."""
-        self.table.put_item(Item=rejection_item(row, f"{row['id']:012d}"))
+    def export_rows(self) -> dict[str, Iterator[dict]]:
+        """Every trade, snapshot and kept rejection as rows, oldest first.
 
-    def batch_put(self, items: Iterator[dict]) -> int:
-        """Write many items, fast and idempotently. Returns the count."""
-        count = 0
-        with self.table.batch_writer(overwrite_by_pkeys=["PK", "SK"]) as batch:
-            for item in items:
-                batch.put_item(Item=item)
-                count += 1
-        return count
-
-    def set_trade_sequence(self, last_id: int):
-        """Make sure new trade ids start after *last_id*. Never moves back."""
-        try:
-            self.table.update_item(
-                Key=_SEQ_KEY,
-                UpdateExpression="SET n = :n",
-                ConditionExpression="attribute_not_exists(n) OR n < :n",
-                ExpressionAttributeValues={":n": Decimal(last_id)},
-            )
-        except ClientError as e:
-            if not _is_condition_failure(e):
-                raise
+        Each table is read page by page as it is consumed, so the weekly
+        archive streams it out with memory flat however much history there
+        is. Trades come in time order, from GSI1.
+        """
+        oldest = date.today() - timedelta(days=REJECTION_TTL_DAYS)
+        days = sorted(_days_back_to(oldest))
+        snapshots = self._query(KeyConditionExpression=Key("PK").eq("SNAPSHOT"))
+        return {
+            "trades": self._feed(newest_first=False),
+            "daily_snapshots": (_row(i, SNAPSHOT_COLUMNS) for i in snapshots),
+            "risk_rejections": (
+                r for day in days for r in self._rejections(day, newest_first=False)
+            ),
+        }
 
     def trade_sequence(self) -> int:
         item = self.table.get_item(Key=_SEQ_KEY, ConsistentRead=True).get("Item")
@@ -597,7 +569,7 @@ class DynamoTradeLog:
         ]["BackupArn"]
 
     def scan_items(self) -> Iterator[dict]:
-        """Every item in the table, for verification and export."""
+        """Every item in the table, as stored."""
         kwargs: dict = {"ConsistentRead": True}
         while True:
             page = self.table.scan(**kwargs)
@@ -622,23 +594,6 @@ class DynamoTradeLog:
                 if "LastEvaluatedKey" not in page:
                     return count
                 kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
-
-    def all_rows(self) -> dict[str, list[dict]]:
-        """Every trade, snapshot and rejection, in SQLite's row shape."""
-        tables: dict[str, list[dict]] = {
-            "trades": [],
-            "daily_snapshots": [],
-            "risk_rejections": [],
-        }
-        for item in self.scan_items():
-            pk = item["PK"]
-            if pk.startswith("TRADE#"):
-                tables["trades"].append(_row(item, TRADE_COLUMNS))
-            elif pk == "SNAPSHOT":
-                tables["daily_snapshots"].append(_row(item, SNAPSHOT_COLUMNS))
-            elif pk.startswith("REJECT#"):
-                tables["risk_rejections"].append(_row(item, REJECTION_COLUMNS))
-        return tables
 
     def open_lot_ids(self) -> set[int]:
         return {r["id"] for r in self._lots()}
@@ -680,7 +635,7 @@ class DynamoTradeLog:
         except ClientError as e:
             if e.response["Error"]["Code"] != "TransactionCanceledException":
                 raise
-            # SQLite allows an exit whose lot isn't on record; keep the sell.
+            # An exit whose lot isn't on record is still recorded.
             logger.warning(
                 "Lot #%s not on record; logging exit #%s alone", parent, row["id"]
             )
@@ -744,12 +699,16 @@ class DynamoTradeLog:
         items = self._query("GSI2", KeyConditionExpression=Key("GSI2PK").eq("LOT"))
         return [_row(i, TRADE_COLUMNS) for i in items]
 
-    def _rejections(self, day: str, since: str | None = None) -> Iterator[dict]:
-        """One day's rejections, newest first."""
+    def _rejections(
+        self, day: str, since: str | None = None, newest_first: bool = True
+    ) -> Iterator[dict]:
+        """One day's rejections, newest first unless *newest_first* is False."""
         key = Key("PK").eq(f"REJECT#{day}")
         if since:
             key = key & Key("SK").gte(since)
-        items = self._query(KeyConditionExpression=key, ScanIndexForward=False)
+        items = self._query(
+            KeyConditionExpression=key, ScanIndexForward=not newest_first
+        )
         return (_row(i, REJECTION_COLUMNS) for i in items)
 
 

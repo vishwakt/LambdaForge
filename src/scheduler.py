@@ -528,7 +528,7 @@ class TradingEngine:
 
         The 15:55 snapshot overwrites the row; this one is what remains if
         that run fails. It is written here rather than by the 9:30 scan so
-        only one Lambda writes trades.db at the open. A failure is logged and
+        the 9:30 scan stays read-only. A failure is logged and
         never stops the run.
         """
         try:

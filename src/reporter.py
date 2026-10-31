@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from src.client import get_account_info, get_positions, get_trading_client
 from src.config import AppConfig, load_config
-from src.trade_log import TradeLog
+from src.store import make_trade_log
 
 # ANSI color helpers
 GREEN = "\033[92m"
@@ -55,7 +55,7 @@ def print_dashboard(config: AppConfig | None = None):
     4. Quick stats
     """
     config = config or load_config()
-    trade_log = TradeLog(config.db_path)
+    trade_log = make_trade_log(config)
     trading_client = get_trading_client(paper=config.trading_mode == "paper")
     account = get_account_info(trading_client)
     positions = get_positions(trading_client)
@@ -169,7 +169,7 @@ def print_pnl_report(days: int = 30, config: AppConfig | None = None):
     Shows equity curve, daily P&L, and cumulative return.
     """
     config = config or load_config()
-    trade_log = TradeLog(config.db_path)
+    trade_log = make_trade_log(config)
 
     since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     snapshots = trade_log.get_snapshots(since=since)
@@ -263,7 +263,7 @@ def print_performance(days: int | None = None, config: AppConfig | None = None):
     Shows win rate, P&L, and trade count for each strategy.
     """
     config = config or load_config()
-    trade_log = TradeLog(config.db_path)
+    trade_log = make_trade_log(config)
 
     since = None
     period_label = "ALL TIME"

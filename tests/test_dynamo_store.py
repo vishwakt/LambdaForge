@@ -1,7 +1,7 @@
-"""The DynamoDB store answers every query the way trades.db does.
+"""The DynamoDB trade store answers every query the engine and reports make.
 
-Each test runs against both stores (the ``any_trade_log`` fixture), so a
-difference between them fails here before it can reach a cutover.
+These tests were written against both trades.db and the table, so the
+table's answers are the ones trades.db gave.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from src import dynamo_store, trade_log
+from src import dynamo_store
 
 
 def buy(log, symbol="AAPL", strategy="macd", order_id=None, stop=90.0):
@@ -175,8 +175,7 @@ class FakeDate(date):
 
 @pytest.fixture
 def day(monkeypatch):
-    """Move 'today' for both stores."""
-    monkeypatch.setattr(trade_log, "date", FakeDate)
+    """Move 'today' for the store."""
     monkeypatch.setattr(dynamo_store, "date", FakeDate)
 
     def _set(value):

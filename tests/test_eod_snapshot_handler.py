@@ -1,9 +1,8 @@
-"""The EOD run uploads trades.db before it archives.
+"""The EOD run writes the day's snapshot before it archives.
 
 The weekly archive ran Bot 2's EOD Lambda out of memory every day from
-2026-10-19. The upload sat in a ``finally`` after the archive, and a process
-killed for memory or time runs no ``finally``, so trades.db never got the
-day's snapshot.
+2026-10-19. The snapshot now goes straight to the table, so a run killed
+during the archive has already recorded the day.
 """
 
 import pytest
@@ -23,20 +22,19 @@ def calls(monkeypatch):
             calls.append("snapshot")
 
     monkeypatch.setattr(handlers, "_get_engine", FakeEngine)
-    monkeypatch.setattr(handlers, "_sync_db_to_s3", lambda *a: calls.append("upload"))
     monkeypatch.setattr(
         handlers, "_archive_audit_tables", lambda engine: calls.append("archive")
     )
     return calls
 
 
-def test_trades_db_is_uploaded_before_the_archive_runs(calls):
+def test_the_snapshot_is_written_before_the_archive_runs(calls):
     handlers.eod_snapshot_handler({}, None)
 
-    assert calls == ["snapshot", "upload", "archive"]
+    assert calls == ["snapshot", "archive"]
 
 
-def test_the_snapshot_is_uploaded_when_the_archive_dies(calls, monkeypatch):
+def test_the_snapshot_is_kept_when_the_archive_dies(calls, monkeypatch):
     def out_of_memory(engine):
         raise MemoryError
 
@@ -45,10 +43,10 @@ def test_the_snapshot_is_uploaded_when_the_archive_dies(calls, monkeypatch):
     with pytest.raises(MemoryError):
         handlers.eod_snapshot_handler({}, None)
 
-    assert calls == ["snapshot", "upload"]
+    assert calls == ["snapshot"]
 
 
-def test_a_failed_snapshot_still_uploads_and_skips_the_archive(calls, monkeypatch):
+def test_a_failed_snapshot_skips_the_archive(calls, monkeypatch):
     def fail(self):
         raise RuntimeError("Alpaca down")
 
@@ -58,4 +56,4 @@ def test_a_failed_snapshot_still_uploads_and_skips_the_archive(calls, monkeypatc
     with pytest.raises(RuntimeError):
         handlers.eod_snapshot_handler({}, None)
 
-    assert calls == ["upload"]
+    assert calls == []

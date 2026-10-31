@@ -1,9 +1,9 @@
 """Tests for get_trade_stats aggregates (avg_win / avg_loss) and digest output."""
 
-from src.trade_log import TradeLog
+from src.dynamo_store import DynamoTradeLog
 
 
-def _log_closed_trade(tl: TradeLog, symbol: str, pnl: float) -> None:
+def _log_closed_trade(tl: DynamoTradeLog, symbol: str, pnl: float) -> None:
     """Helper: log a buy+sell pair so the sell carries a pnl for stats queries."""
     buy_id = tl.log_trade(
         symbol=symbol,
@@ -38,13 +38,13 @@ def _log_closed_trade(tl: TradeLog, symbol: str, pnl: float) -> None:
 class TestTradeStatsAverages:
     """avg_win / avg_loss must aggregate from actual win/loss trades, not derive."""
 
-    def test_no_closed_trades(self, any_trade_log: TradeLog):
+    def test_no_closed_trades(self, any_trade_log: DynamoTradeLog):
         stats = any_trade_log.get_trade_stats()
         assert stats["closed_trades"] == 0
         assert stats["avg_win"] == 0.0
         assert stats["avg_loss"] == 0.0
 
-    def test_avg_win_only_wins(self, any_trade_log: TradeLog):
+    def test_avg_win_only_wins(self, any_trade_log: DynamoTradeLog):
         _log_closed_trade(any_trade_log, "AAA", 100.0)
         _log_closed_trade(any_trade_log, "BBB", 200.0)
         stats = any_trade_log.get_trade_stats()
@@ -53,7 +53,7 @@ class TestTradeStatsAverages:
         assert stats["avg_win"] == 150.0
         assert stats["avg_loss"] == 0.0
 
-    def test_avg_loss_only_losses(self, any_trade_log: TradeLog):
+    def test_avg_loss_only_losses(self, any_trade_log: DynamoTradeLog):
         _log_closed_trade(any_trade_log, "AAA", -50.0)
         _log_closed_trade(any_trade_log, "BBB", -150.0)
         stats = any_trade_log.get_trade_stats()
@@ -62,7 +62,7 @@ class TestTradeStatsAverages:
         assert stats["avg_win"] == 0.0
         assert stats["avg_loss"] == -100.0
 
-    def test_avg_win_and_loss_mixed(self, any_trade_log: TradeLog):
+    def test_avg_win_and_loss_mixed(self, any_trade_log: DynamoTradeLog):
         # wins: 100, 300 -> avg 200. losses: -50, -150 -> avg -100.
         _log_closed_trade(any_trade_log, "AAA", 100.0)
         _log_closed_trade(any_trade_log, "BBB", 300.0)
@@ -77,7 +77,7 @@ class TestTradeStatsAverages:
         # (total_pnl - avg_win * wins) / losses = (200 - 400) / 2 = -100
         # which happens to match here, but with asymmetric trades it won't.
 
-    def test_derivation_formula_would_be_wrong(self, any_trade_log: TradeLog):
+    def test_derivation_formula_would_be_wrong(self, any_trade_log: DynamoTradeLog):
         """Regression: the old dead-code formula produced nonsense for
         asymmetric win/loss counts. Verify the aggregated value is right."""
         # 3 wins totalling 600 (avg 200), 1 loss of -50.
@@ -98,7 +98,7 @@ class TestTradeStatsAverages:
 class TestWeeklyDigestAvgLines:
     """The digest must surface Avg Win / Avg Loss when there are closed trades."""
 
-    def test_digest_shows_avg_win_and_loss(self, any_trade_log: TradeLog, tmp_path):
+    def test_digest_shows_avg_win_and_loss(self, any_trade_log: DynamoTradeLog):
         from datetime import date
 
         from src.weekly_digest import generate_weekly_digest
@@ -115,7 +115,7 @@ class TestWeeklyDigestAvgLines:
         )
 
         class _Cfg:
-            db_path = str(tmp_path / "unused.db")
+            pass
 
         report = generate_weekly_digest(
             trade_log=any_trade_log,
@@ -132,7 +132,7 @@ class TestWeeklyDigestAvgLines:
         assert date.today().isoformat()[:7] in report
 
     def test_digest_omits_avg_lines_when_no_closed_trades(
-        self, any_trade_log: TradeLog, tmp_path
+        self, any_trade_log: DynamoTradeLog
     ):
         from src.weekly_digest import generate_weekly_digest
 
@@ -144,7 +144,7 @@ class TestWeeklyDigestAvgLines:
         )
 
         class _Cfg:
-            db_path = str(tmp_path / "unused.db")
+            pass
 
         report = generate_weekly_digest(
             trade_log=any_trade_log,

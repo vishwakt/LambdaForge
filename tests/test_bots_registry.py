@@ -85,7 +85,9 @@ class TestNoEditsForANewBot:
         for b in BOTS:
             bucket = f"arn:aws:s3:::stock-trader-db{suffix(b['name'])}-{ACCOUNT}"
             assert any(iam_matches(r, bucket) for r in resources), bucket
-            assert any(iam_matches(r, f"{bucket}/trades.db") for r in resources)
+            assert any(
+                iam_matches(r, f"{bucket}/archive/2026-W44.json.gz") for r in resources
+            )
 
     def test_iam_reaches_every_bots_settings_but_not_telegrams(self):
         resources = statement(

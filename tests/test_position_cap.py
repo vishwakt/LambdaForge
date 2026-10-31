@@ -88,13 +88,11 @@ class AlwaysBuy:
 
 
 @pytest.fixture
-def scan(tmp_path, monkeypatch):
+def scan(engine_config, monkeypatch):
     """Run one entry scan over 30 BUY signals with nothing ever filling."""
     from src.scheduler import TradingEngine
 
-    engine = TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+    engine = TradingEngine(engine_config)
     symbols = [f"S{i:02d}" for i in range(30)]
     engine.config.scheduler.symbols = symbols
     engine.config.scheduler.strategies = ["always_buy"]
