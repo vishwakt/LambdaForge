@@ -1,8 +1,8 @@
 name: Deploy one bot
 
-# Builds the image and deploys one bot's stack. Called by deploy.yml (every
-# bot with deploy: auto, on each push to main) and deploy-live.yml. Every name
-# comes from the bot's entry in bots.json, so adding a bot needs no edit here.
+# Builds the image and deploys one bot's stack. Called by deploy.yml for
+# every bot on each push to main. Every name comes from the bot's entry in
+# bots.json, so adding a bot needs no edit here.
 
 on:
   workflow_call:

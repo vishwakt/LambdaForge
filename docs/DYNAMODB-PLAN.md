@@ -1,27 +1,40 @@
 # From trades.db to DynamoDB, and the risk fixes that come first
 
-Status: proposed 2026-09-29. Phase 1A shipped in #72, phase 1B in #80, and phases 2–5 are built (see [As built](#as-built-october-2026)); the dates in section 2 are superseded by the schedule there.
+Status: **done.** Proposed 2026-09-29. Phase 1A shipped in #72, phase 1B in #80, phases 2–5 in #81, and phase 6 (DynamoDB only) in the PR after #87; see [As built](#as-built-october-2026) and [Phase 6](#phase-6-dynamodb-only-november-2026). The dates in section 2 are superseded by the schedule there. The rest of this document is the plan as proposed, kept for the reasoning; where it mentions SQLite, shadow mode or rollback, those are gone.
 All times are Pacific (the market is open 6:30 AM to 1:00 PM PT).
+
+## Phase 6: DynamoDB only (November 2026)
+
+No bot cut over from trades.db in the end. Bot 2's cutover refused on Oct 30 (its EOD run had run out of memory, fixed in #85), and instead of a second shadow day each experiment started over on its table:
+
+- **Bot 2** was reset on Oct 30 after the close: the table was backed up and trades.db copied to `experiments/` first, then the table emptied and started (#86).
+- **Bot 3** was created by #86 and started on its table by its first deploy (`init`).
+- **live-config** was a test stack too. It was retired rather than migrated: its stack, table and keys are deleted by hand, and its `bots.json` entry and the Deploy Live workflow are gone.
+- **Stack 1** only hosts the Telegram ops function (#87).
+
+With every bot on its table, phase 6 removed what only SQLite needed: the SQLite trade log, shadow mode, the `store` setting (an existing parameter is ignored), the trades.db download and upload around every run, and the `verify`, `shadow`, `cutover` and `rollback` modes. `MigrateFunction` keeps `status`, `health`, `init` and `reset`. The weekly archive streams the table to `archive/` instead of writing a trades.db first.
+
+The same change records each rejection once a day per symbol, strategy, action and reason, as section 6 recommended, instead of every minute: Bot 2's October history drops from about 14,800 rows a trading day to about 66.
 
 ## As built (October 2026)
 
 The design below was simplified to get the move done in one week, with every step run by a scheduled workflow instead of by hand.
 
-**What's the same:** one table per active stack (`stock-trader-2`, `stock-trader-live`; none for stack 1), single-table keys, a time-ordered GSI1 and a sparse open-lot GSI2, 90-day TTL on rejections, on-demand billing, point-in-time recovery, deletion protection, a transaction that records an exit and closes its lot together, stops that the table refuses to lower, and the `sqlite` / `shadow` / `dynamodb` switch in Parameter Store.
+**What's the same:** one table per active stack (`stock-trader-2`, then `stock-trader-3`; `stock-trader-live` until it was retired; none for stack 1), single-table keys, a time-ordered GSI1 and a sparse open-lot GSI2, 90-day TTL on rejections, on-demand billing, point-in-time recovery, deletion protection, a transaction that records an exit and closes its lot together, stops that the table refuses to lower, and the `sqlite` / `shadow` / `dynamodb` switch in Parameter Store.
 
 **What differs, and why:**
 
 | Plan | As built | Why |
 |---|---|---|
 | One item per Alpaca order (`ORDER#<order_id>`) with `position_state` | One item per trades.db row (`TRADE#<id>`), same columns and ids | Rows move between the stores and back unchanged, so the copy, the shadow comparison, the rollback and the weekly archive need no translation |
-| Rejections aggregated per day and signature | One item per rejection, as today | #80 stopped logging a rejection per signal when the stack is full, which was nearly all of them, so the write cost fell without changing the format |
+| Rejections aggregated per day and signature | One item per rejection, as today; since phase 6, one per day per signal and reason | #80 stopped logging a rejection per signal when the stack is full. That left the refusals of a stack with no cash to spare, still 12–20k rows a day, so phase 6 keeps only the first of each day |
 | Run tallies and events (kill, alive, strategy changes) | Not built | Not needed to move the store; a follow-up |
 | Kill-switch sells recorded | Not yet | The health check lists any Alpaca order with no row, which includes these |
 | Scratch dry-run table | The copy goes into the real table, and the table isn't used until `store` says so | One table per stack, nothing to clean up |
 | Frozen trades.db under `archive/` | Under `frozen/`, Standard for 90 days | `archive/` moves to Deep Archive on day 0, and a rollback has to read the frozen copy at once |
 | Stops written every run | Written only when they move | Most of the writes, on either store |
 
-**Where the code is:** `src/dynamo_store.py` (the table), `src/store.py` (the switch and shadow mode), `src/migrate.py` (copy, compare, export), `migrate_handler` in `src/lambda_handlers.py` (the modes), `.github/workflows/dynamodb-migration.yml` (the schedule).
+**Where the code is:** `src/dynamo_store.py` (the table), `src/store.py` (which table a run uses), `migrate_handler` in `src/lambda_handlers.py` (the modes), `.github/workflows/dynamodb-migration.yml` (the schedule). `src/migrate.py` (copy, compare, export) and shadow mode were removed in phase 6.
 
 **Schedule** (each step refuses to run from the wrong `store` value, so a late or repeated run changes nothing; a failed check fails the job and GitHub emails it):
 
@@ -33,10 +46,11 @@ The design below was simplified to get the move done in one week, with every ste
 | Thu Oct 29, 1:45 PM | `shadow` | trades.db is copied into the table and verified exactly, then `store=shadow` |
 | Fri Oct 30, all day | | trades.db stays the store of record; every write is repeated on the table through its own write path |
 | Fri Oct 30, 1:40 PM | `cutover` | The day's writes are compared with trades.db (write times by presence only). If clean: trades.db is frozen to `frozen/`, copied in once more, verified exactly, the table is backed up, then `store=dynamodb`. Bot 2 first; live-config only if Bot 2 passed. Stack 1's trades.db is frozen too, and not migrated |
-| Mon Nov 2, 6:00 and 7:45 AM | `health` | `store=dynamodb`, the table answers, and every order Alpaca has today has a row |
-| Fri Nov 6 | You | Phase 6 go/no-go: remove the S3 sync and the SQLite store |
+| Fri Oct 30, after the close | You | Instead of the cutover: Bot 2 reset to an empty table, bot 3 created on its table, live-config to be retired (see [Phase 6](#phase-6-dynamodb-only-november-2026)) |
+| Mon Nov 2, 6:00 and 7:45 AM | `health` | Bot 2 and bot 3: the table answers, and every order Alpaca has today has a row |
+| Mon Nov 2, after the close | You | Phase 6: merge the PR that removes the S3 sync and the SQLite store |
 
-**Rollback:** run the workflow with `mode=rollback` after the close. It writes the table out as trades.db, fills in older rejections from the frozen copy, uploads it and sets `store=sqlite`. Before Friday's cutover, nothing needs rolling back: SQLite is still the store of record.
+**Rollback:** removed in phase 6. Before it, `mode=rollback` wrote the table out as trades.db and set `store=sqlite`; no bot ever needed it.
 
 **Pause:** `gh variable set MIGRATION_PAUSED --body true`.
 

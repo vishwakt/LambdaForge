@@ -3,9 +3,8 @@
 At 9:30 the DailyScan and the monitor's first run of the day both scanned for
 entries and bought the same symbols. Both also downloaded trades.db and
 uploaded it back, so whichever upload landed second erased the other's
-writes. Now the scan places no orders and uploads nothing, the open snapshot
-is written by the monitor, and the hourly and weekly digests, which only
-read, stop uploading too.
+writes. Now the scan places no orders, the open snapshot is written by the
+monitor, and no run syncs a trades.db at all: the table is the store.
 """
 
 from datetime import date
@@ -101,23 +100,23 @@ class FakeEngine:
 
 
 @pytest.mark.parametrize(
-    ("handler", "uploads"),
+    "handler",
     [
-        (handlers.daily_scan_handler, 0),
-        (handlers.hourly_digest_handler, 0),
-        (handlers.weekly_digest_handler, 0),
-        (handlers.monitor_stops_handler, 1),
-        (handlers.eod_snapshot_handler, 1),
+        handlers.daily_scan_handler,
+        handlers.hourly_digest_handler,
+        handlers.weekly_digest_handler,
+        handlers.monitor_stops_handler,
+        handlers.eod_snapshot_handler,
     ],
 )
-def test_only_handlers_that_write_upload_trades_db(handler, uploads, monkeypatch):
-    uploaded = []
+def test_no_handler_syncs_a_trades_db(handler, monkeypatch):
+    def no_client(name, *args, **kwargs):
+        raise AssertionError(f"a {name} client was created")
+
     monkeypatch.setattr(handlers, "_get_engine", FakeEngine)
-    monkeypatch.setattr(handlers, "_sync_db_to_s3", lambda *a: uploaded.append(1))
+    monkeypatch.setattr(handlers.boto3, "client", no_client)
     monkeypatch.setattr(handlers, "_market_open", lambda: True)
     monkeypatch.setattr(handlers, "_check_and_enforce_kill_switch", lambda: False)
     monkeypatch.setattr(handlers, "_archive_audit_tables", lambda engine: None)
 
-    handler({}, None)
-
-    assert len(uploaded) == uploads
+    assert handler({}, None)["statusCode"] == 200

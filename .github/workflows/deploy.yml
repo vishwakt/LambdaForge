@@ -1,7 +1,6 @@
 name: Build & Deploy
 
-# Deploys every bot in bots.json with deploy: auto, one job per bot, on each
-# push to main. Bots with deploy: manual go through Deploy Live instead.
+# Deploys every bot in bots.json, one job per bot, on each push to main.
 
 on:
   push:
@@ -30,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       bot:
-        description: One bot from bots.json (deploy auto), or blank for all of them
+        description: One bot from bots.json, or blank for all of them
         required: false
         type: string
 
@@ -66,10 +65,10 @@ jobs:
           BOT: ${{ inputs.bot }}
         run: |
           bots=$(jq -c --arg bot "$BOT" \
-            '[.bots[] | select(.deploy == "auto" and ($bot == "" or .name == $bot)) | .name]' \
+            '[.bots[] | select($bot == "" or .name == $bot) | .name]' \
             bots.json)
           if [ "$bots" = "[]" ]; then
-            echo "::error::no bot with deploy: auto matches '$BOT' in bots.json"
+            echo "::error::no bot matches '$BOT' in bots.json"
             exit 1
           fi
           echo "bots=$bots" >> "$GITHUB_OUTPUT"

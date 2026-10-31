@@ -33,11 +33,9 @@ class AlwaysBuy:
 
 
 @pytest.fixture
-def scan(tmp_path, monkeypatch):
+def scan(engine_config, monkeypatch):
     """One entry scan over AAA, BBB and CCC, with a BUY signal on each."""
-    engine = TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+    engine = TradingEngine(engine_config)
     engine.config.scheduler.symbols = ["AAA", "BBB", "CCC"]
     engine.config.scheduler.strategies = ["always_buy"]
     monkeypatch.setitem(scheduler_mod.STRATEGIES, "always_buy", AlwaysBuy)

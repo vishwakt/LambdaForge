@@ -14,7 +14,7 @@ and reporting.
 
 - Connect to Alpaca's paper trading API using alpaca-py SDK
 - Run on a daily schedule (cron or scheduler)
-- Maintain portfolio state and trade log in a local SQLite database
+- Maintain portfolio state and trade log in a database (SQLite at first; one DynamoDB table per bot since Milestone 8)
 
 ## Strategy Engine
 
@@ -46,7 +46,7 @@ and reporting.
 - Python
 - alpaca-py
 - pandas
-- SQLite
+- DynamoDB (SQLite until Milestone 8)
 - schedule or APScheduler
 
 ---
@@ -97,5 +97,13 @@ and reporting.
 - Opportunistic scanning: monitor cycle scans full 218-symbol watchlist for buy/sell signals every 2 min
 - SES HTML email formatting: monospace `<pre>` rendering for daily summary and weekly digest
 - Daily scan moved from 09:45 ET to 09:30 ET (market open)
-- Live trading namespace: parameterized SAM template (Environment=paper/live), dual-stack isolation with separate S3 buckets, SSM prefixes, SNS topics, and IAM roles
-- deploy-live.yml workflow: manual workflow_dispatch with DEPLOY-LIVE confirmation gate
+- Live trading namespace: parameterized SAM template (Environment=paper/live), dual-stack isolation with separate S3 buckets, SSM prefixes, SNS topics, and IAM roles (the live stack was a test stack, retired in Milestone 8)
+- deploy-live.yml workflow: manual workflow_dispatch with DEPLOY-LIVE confirmation gate (removed in Milestone 8)
+
+### Milestone 8 — One store, one registry
+- DynamoDB is the only trade store: one table per bot, item-per-row writes, so concurrent runs never overwrite each other; SQLite, the per-run S3 sync and the migration modes are gone
+- `bots.json` lists every bot; a bot's name gives its SSM prefix, stack, bucket and table, and `scripts/new_bot.py` adds one
+- Stack 1 hosts only the Telegram ops function
+- Paper experiments start over with `reset` (table backed up first)
+- Each risk rejection recorded once a day per signal and reason instead of every minute
+- Weekly archive streamed from the table to Glacier Deep Archive

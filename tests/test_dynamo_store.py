@@ -1,7 +1,7 @@
-"""The DynamoDB store answers every query the way trades.db does.
+"""The DynamoDB trade store answers every query the engine and reports make.
 
-Each test runs against both stores (the ``any_trade_log`` fixture), so a
-difference between them fails here before it can reach a cutover.
+These tests were written against both trades.db and the table, so the
+table's answers are the ones trades.db gave.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from src import dynamo_store, trade_log
+from src import dynamo_store
 
 
 def buy(log, symbol="AAPL", strategy="macd", order_id=None, stop=90.0):
@@ -175,8 +175,7 @@ class FakeDate(date):
 
 @pytest.fixture
 def day(monkeypatch):
-    """Move 'today' for both stores."""
-    monkeypatch.setattr(trade_log, "date", FakeDate)
+    """Move 'today' for the store."""
     monkeypatch.setattr(dynamo_store, "date", FakeDate)
 
     def _set(value):
@@ -226,6 +225,127 @@ class TestRejections:
         ]
         days = (int(item["expires_at"]) - datetime.now().timestamp()) / 86400
         assert 89 < days <= 90
+
+
+def rejection_rows(log):
+    return [i for i in log.scan_items() if i["PK"].startswith("REJECT")]
+
+
+class TestOneRejectionADay:
+    """A signal refused every minute is recorded once a day, not 390 times."""
+
+    def test_the_same_refusal_is_recorded_once(self, dynamo_trade_log):
+        written = [
+            dynamo_trade_log.log_risk_rejection(
+                "A", "macd", "BUY", 0.6, f"Max open positions reached: 12/12{extra}"
+            )
+            for extra in ("", "", " including 1 pending")
+        ]
+        assert written == [True, False, False]
+        [row] = rejection_rows(dynamo_trade_log)
+        assert row["rejection_reason"] == "Max open positions reached: 12/12"
+
+    @pytest.mark.parametrize(
+        "other",
+        [
+            ("B", "macd", "BUY", "Max open positions reached: 12/12"),
+            ("A", "zscore", "BUY", "Max open positions reached: 12/12"),
+            ("A", "macd", "SELL", "Max open positions reached: 12/12"),
+            ("A", "macd", "BUY", "Cooldown: A was sold earlier today"),
+            ("A", "macd", "BUY", "Max open positions reached: 12/12; Cooldown: A"),
+        ],
+    )
+    def test_a_different_signal_or_reason_is_recorded(self, dynamo_trade_log, other):
+        dynamo_trade_log.log_risk_rejection(
+            "A", "macd", "BUY", 0.6, "Max open positions reached: 12/12"
+        )
+        symbol, strategy, action, reason = other
+        assert dynamo_trade_log.log_risk_rejection(
+            symbol, strategy, action, 0.6, reason
+        )
+        assert len(rejection_rows(dynamo_trade_log)) == 2
+
+    def test_a_repeat_costs_no_write(self, dynamo_trade_log, monkeypatch):
+        dynamo_trade_log.log_risk_rejection("A", "macd", "BUY", 0.6, "Max open: 12/12")
+        writes = []
+        monkeypatch.setattr(
+            dynamo_trade_log.table, "put_item", lambda **kw: writes.append(kw)
+        )
+        for _ in range(5):
+            dynamo_trade_log.log_risk_rejection(
+                "A", "macd", "BUY", 0.6, "Max open: 12/12"
+            )
+        assert writes == []
+
+    def test_todays_rows_are_read_once_per_run(
+        self, dynamo_trade_log, dynamo_table, monkeypatch
+    ):
+        dynamo_trade_log.log_risk_rejection("A", "macd", "BUY", 0.6, "Max open: 12/12")
+        # The next run is a new trade log, which reads today's rows once.
+        run = dynamo_store.DynamoTradeLog(
+            dynamo_trade_log.table_name, resource=dynamo_table
+        )
+        queries = []
+        query = run.table.query
+        monkeypatch.setattr(
+            run.table, "query", lambda **kw: queries.append(kw) or query(**kw)
+        )
+        for symbol in ("A", "B", "C", "A"):
+            run.log_risk_rejection(symbol, "macd", "BUY", 0.6, "Max open: 12/12")
+        assert len(queries) == 1
+        assert sorted(r["symbol"] for r in rejection_rows(run)) == ["A", "B", "C"]
+
+    def test_a_new_day_starts_over(self, dynamo_trade_log, monkeypatch):
+        clock = [datetime(2026, 10, 26, 15, 0)]
+
+        class _Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return clock[0].replace(tzinfo=tz)
+
+        monkeypatch.setattr(dynamo_store, "datetime", _Clock)
+        dynamo_trade_log.log_risk_rejection("A", "macd", "BUY", 0.6, "Max open: 12/12")
+        clock[0] = datetime(2026, 10, 27, 9, 31)
+        assert dynamo_trade_log.log_risk_rejection(
+            "A", "macd", "BUY", 0.6, "Max open: 12/12"
+        )
+        assert sorted(i["PK"] for i in rejection_rows(dynamo_trade_log)) == [
+            "REJECT#2026-10-26",
+            "REJECT#2026-10-27",
+        ]
+
+
+class TestRejectionCategory:
+    @pytest.mark.parametrize(
+        ("reason", "category"),
+        [
+            ("Max open positions reached: 12/12", "Max open positions reached"),
+            (
+                "Max open positions reached: 12/12 including 2 pending",
+                "Max open positions reached",
+            ),
+            (
+                "Position size too small: max 5% of portfolio = $3.13, "
+                "can't buy 1 share at $75.03",
+                "Position size too small",
+            ),
+            ("Confidence 45.0% below minimum 50.0%", "Confidence # below minimum #"),
+            (
+                "No cash available ($-1,234.50); no margin",
+                "No cash available (#); no margin",
+            ),
+            (
+                "Max open positions reached: 12/12; Cooldown: TSLA was sold earlier today",
+                "Max open positions reached; Cooldown",
+            ),
+            (
+                "No stop-loss provided with BUY signal",
+                "No stop-loss provided with BUY signal",
+            ),
+        ],
+    )
+    def test_numbers_that_change_by_the_minute_are_dropped(self, reason, category):
+        assert dynamo_store.rejection_category(reason) == category
 
 
 class TestNumbers:

@@ -14,7 +14,6 @@ class TestBotAddressing:
         "name,prefix,stack",
         [
             ("stock-bot-2", "/stock-bot-2/", "stock-trading-bot-2"),
-            ("stock-bot-live", "/stock-bot-live/", "stock-trading-bot-live"),
             ("stock-bot-3", "/stock-bot-3/", "stock-trading-bot-3"),
         ],
     )
@@ -246,7 +245,7 @@ class TestTradingClientFromSsm:
 
         monkeypatch.setattr(ops, "TradingClient", _TC)
         ops._trading_client(
-            ops.Bot("stock-bot-live"),
+            ops.Bot("stock-bot-3"),
             {"alpaca_api_key": "k", "alpaca_secret_key": "s", "trading_mode": "live"},
         )
         assert captured == {"key": "k", "secret": "s", "paper": False}
@@ -286,7 +285,7 @@ class TestMargin:
         return c
 
     def test_reads_the_cap_and_current_use(self, client):
-        m = ops.margin(ops.Bot("stock-bot-live"))
+        m = ops.margin(ops.Bot("stock-bot-3"))
         assert m["max_margin_multiplier"] == "4"
         assert m["no_shorting"] is False
         assert m["cash"] == -35996.0

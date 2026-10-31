@@ -7,44 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
+[Upgrading from 0.1](README.md#upgrading-from-01) before you deploy.
+
 ### Added
 
+- **DynamoDB is the trade store** — trades.db was downloaded from S3 and
+  uploaded back on every run, so two Lambdas running at once erased each
+  other's writes. Each bot now has its own DynamoDB table holding the same
+  rows item by item. Recording an exit and closing its lot is one
+  transaction, and the table refuses a stop lower than the one it holds. A
+  run refuses a table nobody started, since a bot with no open lots has no
+  stops. The bots moved through a scheduled shadow-and-compare migration
+  ([#81]); then SQLite was removed ([#88]).
 - **A new bot is one line in `bots.json`** — adding a stack took a template
   mapping, a copied deploy workflow, IAM edits in three places and a code
   change. `bots.json` now lists every bot, and a bot's name gives every other
   name (SSM prefix, stack, ECR repo, bucket, table). The template takes a
   `BotSuffix` parameter instead of a per-environment mapping; existing stacks
   resolve to the names they already have, so nothing is replaced. Build &
-  Deploy deploys each `deploy: auto` bot through one reusable workflow, the IAM
-  templates and the Telegram role match bots by name pattern, and
-  `scripts/new_bot.py` adds the entry and stores the bot's Alpaca keys after
-  checking them. Bot 3 (`stock-bot-3`) is the first bot added this way.
-  ([#86])
-- **New stacks start on DynamoDB; paper experiments can start over** — a
-  stack's first deploy runs the new `init` step, which marks its empty table
-  as the store and refuses any table or trades.db with rows. `reset` closes
-  out a paper experiment: with the market closed and the account flat, it
-  backs the table up, copies trades.db to `experiments/` while trades.db is
-  still the store, empties the table and starts the next experiment on
-  DynamoDB. It needs the stack's name typed as confirmation. An archive now
-  takes older rejections only from the frozen copy the table's marker names,
-  so an earlier experiment's rows never come back. ([#86])
-- **DynamoDB trade store, behind a switch** — trades.db is downloaded from
-  S3 and uploaded back on every run, so two Lambdas running at once erased
-  each other's writes. A per-stack DynamoDB table now holds the same rows
-  item by item, and the `store` parameter picks `sqlite`, `shadow` (both,
-  trades.db the store of record, every write repeated on the table) or
-  `dynamodb`. Recording an exit and closing its lot is one transaction, and
-  the table refuses a stop lower than the one it holds. `dynamodb` refuses a
-  table that was never migrated into, since a bot with no open lots has no
-  stops. Nothing changes until `store` is set. ([#81])
-- **Migration that runs itself** — a `MigrateFunction` per stack copies
-  trades.db in, compares the two row by row (trades, open lots, P&L by
-  strategy, snapshots, rejections), cuts over, checks health and rolls back.
-  The `DynamoDB migration` workflow runs each step on schedule, Bot 2
-  before live-config. Every step refuses the wrong starting point, so a
-  repeated or late run is harmless, and a failed check fails the job.
-  ([#81])
+  Deploy deploys every bot through one reusable workflow, the IAM templates
+  and the Telegram role match bots by name pattern, and `scripts/new_bot.py`
+  adds the entry and stores the bot's Alpaca keys after checking them. Bot 3
+  (`stock-bot-3`) is the first bot added this way. ([#86], [#88])
+- **New stacks start on their table; paper experiments can start over** — a
+  stack's first deploy runs the `init` step, which starts its empty table
+  and refuses one with rows. `reset` closes out a paper experiment: with the
+  market closed and the account flat, it backs the table up, empties it and
+  starts the next experiment. It needs the stack's name typed as
+  confirmation. Both run in each stack's `MigrateFunction`, through the
+  `DynamoDB migration` workflow, alongside `status` and the `health` check
+  (the table answers, and every order Alpaca has today has a row). ([#86],
+  [#88])
 - **Strategies can own their exits (`uses_trailing_stop = False`)** — the
   engine ratchets every position's stop to the tighter of a percentage and an
   ATR stop, without asking the strategy. For a strategy whose exits are fully
@@ -141,6 +135,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Each risk rejection is recorded once a day** — a signal is refused every
+  minute while its cause lasts, and every refusal was a row: about 14,800
+  rows a trading day on Bot 2 over its last 20 trading days, most of its
+  DynamoDB writes. Now one row a day is kept per symbol, strategy, action
+  and reason (numbers in the reason ignored, so "12/12" and "12/12 including
+  1 pending" are one refusal), which on the same history is about 66 a day.
+  Repeats are skipped before any write. The hourly digest and the realtime
+  rejection email list each refusal once a day, a repeat is still logged,
+  and the weekly digest counts every rejection of the week instead of the
+  newest 100. ([#88])
+- **The weekly archive streams from the table** — it no longer writes the
+  table out as a trades.db first, and reads one page at a time, so its
+  memory stays flat. Same `archive/YYYY-Www.json.gz` keys and lifecycle.
+  ([#88])
 - **One position per symbol by default (`allow_pyramiding`)**: every BUY
   signal on a symbol already held used to buy more, up to the 15%
   concentration cap. A symbol the stack holds, long or short, or has an open
@@ -171,6 +179,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI: paper and Bot 2 deploy workflows skip on docs-only changes** — pushes
   touching only documentation no longer trigger full Docker build/deploy runs.
   ([#37])
+
+### Removed
+
+- **SQLite and trades.db (breaking)** — the SQLite trade log, shadow mode,
+  the trades.db download and upload around every run, the `DB_PATH` and
+  `TRADES_DB_KEY` variables, and the `verify`, `shadow`, `cutover` and
+  `rollback` migration steps. The `store` SSM parameter is ignored and can be
+  deleted. The local CLI reads the table named by `TRADES_TABLE`. A bot that
+  still runs on trades.db has to move to its table before it deploys this;
+  see [Upgrading from 0.1](README.md#upgrading-from-01). ([#88])
+- **The live bot and Deploy Live (breaking)** — `stock-bot-live` was a test
+  stack and is retired, with the Deploy Live workflow. `bots.json` entries
+  no longer take `deploy`: every bot deploys on each push to `main`. The
+  template's `Environment` takes `paper` (stack 1, Telegram only) or
+  `experimental`. `trading_mode=live` still selects Alpaca's live endpoint;
+  how a real-money bot should be guarded is open in [#83]. ([#88])
 
 ### Fixed
 
@@ -281,6 +305,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#85]: https://github.com/vishwakt/LambdaForge/pull/85
 [#86]: https://github.com/vishwakt/LambdaForge/pull/86
 [#87]: https://github.com/vishwakt/LambdaForge/pull/87
+[#88]: https://github.com/vishwakt/LambdaForge/pull/88
+[#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
