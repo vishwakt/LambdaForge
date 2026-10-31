@@ -7,9 +7,10 @@
 ## Overview
 
 LambdaForge is a fully serverless algorithmic trading bot. There is no always-on server — every
-component runs on AWS Lambda, triggered by EventBridge schedules. State is persisted in SQLite,
-synced to S3 on every invocation. Configuration lives in SSM Parameter Store so you can tune
-risk parameters and flip the kill switch without redeploying.
+component runs on AWS Lambda, triggered by EventBridge schedules. Trades, snapshots and
+rejections live in one DynamoDB table per bot, written item by item, so runs never overwrite
+each other. Configuration lives in SSM Parameter Store so you can tune risk parameters and flip
+the kill switch without redeploying.
 
 ---
 
@@ -31,8 +32,8 @@ risk parameters and flip the kill switch without redeploying.
            ┌─────────────────┼─────────────────┐
            │                 │                 │
    ┌───────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-   │  S3 Bucket   │  │  SSM Param  │  │  Alpaca API  │
-   │  trades.db   │  │    Store    │  │  (paper/live)│
+   │  DynamoDB    │  │  SSM Param  │  │  Alpaca API  │
+   │  trade table │  │    Store    │  │  (paper/live)│
    └──────────────┘  └─────────────┘  └─────────────┘
            │
    ┌───────▼──────────────────────┐
@@ -49,7 +50,7 @@ risk parameters and flip the kill switch without redeploying.
 |----------|----------|---------|
 | `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Full daily scan: exits, entries, risk checks |
 | `MonitorStopsFunction` | `rate(1 minute)` during market hours | Trailing stop-loss enforcement, opportunistic entries |
-| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison, then uploads trades.db; after that, on the first run of each ISO week, streams `trades`/`daily_snapshots`/`risk_rejections` to `archive/YYYY-Www.json.gz` (write-once) |
+| `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; after that, on the first run of each ISO week, streams the table's trades, snapshots and rejections to `archive/YYYY-Www.json.gz` in the stack's bucket (write-once) |
 | `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
 | `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
 | `KillSwitchFunction` | Manual invoke only | Emergency halt: liquidates all positions immediately |
@@ -69,7 +70,6 @@ All trading functions check the kill switch at the top of every invocation befor
 DailyScanFunction
   ├── is_market_open() guard
   ├── _check_kill_switch() — reads SSM directly, every call
-  ├── Download trades.db from S3
   ├── load_config() — SSM + env vars + config.json
   └── TradingEngine.run_daily_scan()
         ├── Save daily equity snapshot
@@ -79,7 +79,6 @@ DailyScanFunction
         │     ├── RiskManager.check() — 6 pre-trade gates
         │     └── place_market_order("buy") if approved
         └── BatchingNotifier.flush_trades() → SES email digest
-  └── Upload trades.db to S3
 ```
 
 ### Stop-Loss Monitor (every 1 minute)
@@ -160,7 +159,10 @@ Six gates run in sequence before any BUY is placed (`src/risk.py`):
 5. **Stop-loss required** — Every BUY must include a `stop_loss` price
 6. **Position sizing** — Buy 5% of portfolio per trade, reduced by existing exposure in that symbol
 
-All rejections are logged to `risk_rejections` table and included in the hourly email digest.
+A rejection is recorded the first time it happens each day, one row per symbol, strategy,
+action and reason (numbers in the reason ignored), and included in the hourly email digest.
+A signal is refused every minute while its cause lasts, so recording every refusal was
+12–20k rows a day on Bot 2; repeats are now skipped before any write.
 
 ---
 
@@ -171,7 +173,7 @@ Priority (highest → lowest):
 ```
 SSM Parameter Store  (/stock-bot/* prefix)
     ↓
-Environment Variables  (TRADING_MODE, DB_PATH, NOTIFIER_TYPE, NOTIFY_FREQUENCY)
+Environment Variables  (TRADING_MODE, TRADES_TABLE, NOTIFIER_TYPE, NOTIFY_FREQUENCY)
     ↓
 config.json  (project root)
     ↓
@@ -211,20 +213,25 @@ for `strategies` and `kill-switch` — from the Telegram bot.
 
 ## Multi-Stack Architecture
 
-The same SAM template deploys independent stacks for paper, live, and experimental trading.
-No shared state between stacks. [`bots.json`](bots.json) lists them, and a bot's name gives
-every other name; the template takes it as `BotSuffix` ("" for stack 1, `-2` for Bot 2).
-Build & Deploy deploys each `deploy: auto` bot through `deploy-stack.yml`; a stack's first
-deploy runs `init`, so a new bot starts on DynamoDB. Stack 1's Alpaca keys no longer work, so
-it runs only `TelegramOpsFunction` (the `IsBot` condition leaves out every trading function).
+The same SAM template deploys every stack. No shared state between stacks. [`bots.json`](bots.json)
+lists them, and a bot's name gives every other name; the template takes it as `BotSuffix`
+("" for stack 1, `-2` for Bot 2). Build & Deploy deploys every bot through `deploy-stack.yml` on
+each push to `main`; a stack's first deploy runs `init`, so a new bot starts on its table. Stack
+1's Alpaca keys no longer work, so it runs only `TelegramOpsFunction` (the `IsBot` condition
+leaves out every trading function and the table).
 
-| | Paper | Live | Bot 2 (Experimental) | Bot 3 (Experimental) |
-|---|---|---|---|---|
-| Stack | `stock-trading-bot` | `stock-trading-bot-live` | `stock-trading-bot-2` | `stock-trading-bot-3` |
-| SSM prefix | `/stock-bot/` | `/stock-bot-live/` | `/stock-bot-2/` | `/stock-bot-3/` |
-| S3 bucket | `stock-trader-db-{AccountId}` | `stock-trader-db-live-{AccountId}` | `stock-trader-db-2-{AccountId}` | `stock-trader-db-3-{AccountId}` |
-| Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Manual `workflow_dispatch` + typed `DEPLOY-LIVE` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` |
-| Strategies | MACD, Bollinger, Z-Score (`config.json`) | MACD, Bollinger, Z-Score (`config.json`) | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) | `config.json` until set from Telegram |
+| | Stack 1 (Telegram) | Bot 2 (Experimental) | Bot 3 (Experimental) |
+|---|---|---|---|
+| Stack | `stock-trading-bot` | `stock-trading-bot-2` | `stock-trading-bot-3` |
+| SSM prefix | `/stock-bot/` (and `/stock-bot-ops/` for Telegram) | `/stock-bot-2/` | `/stock-bot-3/` |
+| Trade table | none | `stock-trader-2` | `stock-trader-3` |
+| S3 bucket (archives) | `stock-trader-db-{AccountId}` | `stock-trader-db-2-{AccountId}` | `stock-trader-db-3-{AccountId}` |
+| Deploy trigger | Push to `main` (docs-only pushes skipped) or manual `workflow_dispatch` | same | same |
+| Strategies | none | RSI+MACD, EMA+ADX, Relative Strength (overridden at runtime via the SSM `strategies` parameter) | `config.json` until set from Telegram |
+
+A real-money bot is any bot with `trading_mode=live` and live Alpaca keys. It deploys on every
+push like the others; how a live bot should be guarded is open in
+[#83](https://github.com/vishwakt/LambdaForge/issues/83).
 
 ---
 
@@ -250,7 +257,7 @@ Email types and when they fire:
 | Weekly digest | Friday EOD | SES HTML — equity curve, strategy breakdown |
 | Failed run | A scheduled function still failing after Lambda's two retries (`EventInvokeConfig` → alerts topic) | SNS JSON — the invocation record with the error type |
 
-Email subjects are prefixed with `[PAPER]`, `[LIVE]`, or `[BOT-2]` so you can filter by stack in your inbox.
+Email subjects are prefixed with the bot, e.g. `[BOT-2]` or `[BOT-3]`, so you can filter by stack in your inbox.
 
 ---
 
@@ -276,31 +283,30 @@ aws ssm put-parameter --name "/stock-bot/kill-switch" --value "kill" \
 
 ---
 
-## SQLite Schema
+## Trade Table
 
-```sql
-trades (
-  id, timestamp, symbol, side, qty, order_type, order_id, status,
-  fill_price, strategy, signal_confidence, reason, stop_loss,
-  take_profit, parent_trade_id, pnl, created_at,
-  high_water_mark, trailing_stop
-)
+One DynamoDB table per bot (`stock-trader<suffix>`), on-demand, with point-in-time recovery
+and `DeletionPolicy: Retain`. Each item is one row ([`src/dynamo_store.py`](src/dynamo_store.py)):
 
-daily_snapshots (
-  id, date UNIQUE, equity, cash, portfolio_value,
-  open_positions, daily_pnl, created_at,
-  spy_close, qqq_close, dia_close
-)
+| PK | SK | One per |
+|----|----|---------|
+| `TRADE#<id>` | `TRADE` | trade: id, timestamp, symbol, side, qty, order_type, order_id, status, fill_price, strategy, signal_confidence, reason, stop_loss, take_profit, parent_trade_id, pnl, created_at, high_water_mark, trailing_stop, stop_breached_at |
+| `SNAPSHOT` | `<date>` | daily snapshot: equity, cash, portfolio_value, open_positions, daily_pnl, spy/qqq/dia close |
+| `REJECT#<date>` | `<timestamp>#<key>` | risk rejection, the first of the day per signal and reason; expires after 90 days |
+| `META` | `SEQ#trades` | the last trade id handed out |
+| `META` | `MIGRATION` | when the table was started (`init` or `reset`); runs refuse a table without it |
 
-risk_rejections (
-  id, timestamp, symbol, strategy, action, confidence,
-  rejection_reason, created_at
-)
-```
+GSI1 (`TRADES`, `<timestamp>#<id>`) is the trade feed in time order. GSI2 is sparse: only buys
+still pending or open carry its keys, so the open-lot queries read a few dozen items. Recording
+a sell and closing the lot it exits is one transaction, and the table refuses to lower a stop.
 
-`trades.db` lives in `/tmp` on Lambda, synced from S3 at the start of each invocation and uploaded back at the end.
+`MigrateFunction` runs the table's lifecycle steps (`status`, `health`, `init`, `reset`) for the
+**DynamoDB migration** workflow; the names are kept from the move off SQLite.
 
-The bucket is versioned. A lifecycle policy expires noncurrent `trades.db` versions 3 days after supersession (always keeping the 5 newest as rollback insurance) and aborts incomplete multipart uploads after 7 days. Objects under `archive/` transition to S3 Glacier Deep Archive immediately and expire after 7 years.
+The stack's S3 bucket holds the weekly archives: objects under `archive/` transition to S3
+Glacier Deep Archive immediately and expire after 7 years. Each is a full export of the table,
+so older rejections live in the earlier objects. The bucket also holds what's left of
+`trades.db` from before the move; its old versions expire after 3 days.
 
 ---
 
@@ -340,18 +346,19 @@ RiskManager.check()
 See [README.md](README.md) for the full deployment guide. The short version:
 
 ```bash
-# 1. Bootstrap SSM parameters
-aws ssm put-parameter --name "/stock-bot/alpaca_api_key" --value "YOUR_KEY" --type SecureString
-aws ssm put-parameter --name "/stock-bot/alpaca_secret_key" --value "YOUR_SECRET" --type SecureString
-aws ssm put-parameter --name "/stock-bot/notification_email" --value "you@example.com" --type String
+# 1. The bot's settings and Alpaca keys, under /stock-bot-2/
+python scripts/new_bot.py stock-bot-2
 
 # 2. Deploy
-sam build && sam deploy --guided
+sam build && sam deploy --guided   # Environment=experimental, BotSuffix=-2
 
-# 3. Subscribe to SNS alerts
+# 3. Start the bot's table (CI does this on a stack's first deploy)
+scripts/migration_step.sh stock-trading-bot-2 init
+
+# 4. Subscribe to SNS alerts
 # If you passed NotificationEmail at deploy time, SAM already created the subscription —
 # confirm it from the email SNS sends you. Otherwise: SNS → Topics → the topic whose
-# display name is "Stock Trading Bot Alerts (paper)" → Create subscription → Email
+# display name is "Stock Trading Bot Alerts (stock-trading-bot-2)" → Create subscription → Email
 ```
 
-CI/CD via GitHub Actions: paper stack auto-deploys on push to `main`; live stack requires manual `workflow_dispatch` with a typed confirmation.
+CI/CD via GitHub Actions: every bot in `bots.json` deploys on each push to `main`.

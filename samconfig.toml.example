@@ -9,18 +9,22 @@
 #   sam deploy                 (uses samconfig.toml)
 #
 # CI deploys every bot in bots.json; this file is only for deploying by hand.
+# The default is the first trading bot, stock-bot-2. After its first deploy,
+# start its table: scripts/migration_step.sh stock-trading-bot-2 init
+# (Stack 1 is stock-trading-bot with Environment="paper" and no BotSuffix; it
+# runs only the Telegram function.)
 
 version = 0.1
 
 [default.deploy.parameters]
-stack_name = "stock-trading-bot"
+stack_name = "stock-trading-bot-2"
 resolve_s3 = true
-s3_prefix = "stock-trading-bot"
+s3_prefix = "stock-trading-bot-2"
 region = "us-east-1"                        # Change if you use a different region
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
-parameter_overrides = "Environment=\"paper\""
+parameter_overrides = "Environment=\"experimental\" BotSuffix=\"-2\""
 # image_repositories is auto-populated by `sam deploy --guided` or `--resolve-image-repos`.
 # It will look like:
 # image_repositories = ["DailyScanFunction=YOUR_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/YOUR_REPO/..."]
