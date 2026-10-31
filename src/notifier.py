@@ -25,7 +25,6 @@ logger = logging.getLogger("stock-trader")
 
 _ENV_LABELS = {
     "/stock-bot/": "PAPER",
-    "/stock-bot-live/": "LIVE",
     "/stock-bot-2/": "BOT-2",
 }
 

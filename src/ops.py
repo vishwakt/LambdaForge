@@ -6,8 +6,8 @@ adapter would call these same functions. Nothing here holds trading logic.
 runs with that stack's credentials and its S3-synced trades.db; reads use
 the Alpaca credentials stored under the stack's SSM prefix.
 
-A bot is addressed by its SSM prefix without slashes: ``stock-bot``,
-``stock-bot-2``, ``stock-bot-live``. The list comes from bots.json.
+A bot is addressed by its SSM prefix without slashes: ``stock-bot-2``,
+``stock-bot-3``. The list comes from bots.json.
 """
 
 from __future__ import annotations

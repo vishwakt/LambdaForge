@@ -7,7 +7,8 @@
 #
 # Subsequent deploys:
 #   sam deploy                 (uses samconfig.toml)
-#   sam deploy --config-env live  (deploys the live stack)
+#
+# CI deploys every bot in bots.json; this file is only for deploying by hand.
 
 version = 0.1
 
@@ -27,13 +28,3 @@ parameter_overrides = "Environment=\"paper\""
 
 [default.global.parameters]
 region = "us-east-1"
-
-[live.deploy.parameters]
-stack_name = "stock-trading-bot-live"
-resolve_s3 = true
-s3_prefix = "stock-trading-bot-live"
-region = "us-east-1"
-confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
-disable_rollback = true
-parameter_overrides = "Environment=\"live\" BotSuffix=\"-live\""

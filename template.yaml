@@ -6,7 +6,7 @@ Parameters:
   Environment:
     Type: String
     Default: paper
-    AllowedValues: [paper, live, experimental]
+    AllowedValues: [paper, experimental]
     Description: Trading environment (paper is stack 1, which hosts Telegram ops and has no table).
   BotSuffix:
     Type: String
@@ -297,7 +297,7 @@ Resources:
           Properties:
             # SAM defaults the Scheduler Name to the logical ID, which is the
             # same in every stack — schedules live in one account-wide group,
-            # so paper/live/bot-2 would collide. Prefix with the stack name.
+            # so bot 2 and bot 3 would collide. Prefix with the stack name.
             Name: !Sub "${AWS::StackName}-daily-scan"
             ScheduleExpression: cron(30 9 ? * MON-FRI *)
             ScheduleExpressionTimezone: America/New_York

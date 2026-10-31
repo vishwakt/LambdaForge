@@ -44,8 +44,16 @@ class TestTheRegistry:
         assert all(re.fullmatch(r"stock-bot(-[a-z0-9]+)?", n) for n in names)
 
     def test_every_field_has_a_known_value(self):
-        assert all(b["environment"] in ("paper", "live", "experimental") for b in BOTS)
-        assert all(b["deploy"] in ("auto", "manual") for b in BOTS)
+        assert all(set(b) == {"name", "environment"} for b in BOTS)
+        assert all(b["environment"] in ("paper", "experimental") for b in BOTS)
+
+    def test_the_template_accepts_every_environment(self):
+        template = (ROOT / "template.yaml").read_text()
+        [values] = re.findall(
+            r"Environment:\n(?:    .*\n)*?    AllowedValues: \[(.*)\]", template
+        )
+        allowed = {v.strip() for v in values.split(",")}
+        assert {b["environment"] for b in BOTS} <= allowed
 
     def test_one_paper_stack_hosts_telegram_ops(self):
         # template.yaml deploys TelegramOpsFunction where Environment is paper
@@ -113,16 +121,16 @@ class TestNewBotScript:
 
     def test_adding_a_bot_is_one_new_line(self, new_bot):
         before = new_bot.REGISTRY.read_text().splitlines()
-        assert new_bot.add_to_registry("stock-bot-4", "experimental", "auto")
+        assert new_bot.add_to_registry("stock-bot-4")
         after = new_bot.REGISTRY.read_text().splitlines()
-        new = '    { "name": "stock-bot-4", "environment": "experimental", "deploy": "auto" }'
+        new = '    { "name": "stock-bot-4", "environment": "experimental" }'
         # the bot before it only gains the comma JSON needs
         assert after == [*before[:-3], before[-3] + ",", new, *before[-2:]]
 
     def test_adding_a_bot_twice_changes_nothing(self, new_bot):
-        assert new_bot.add_to_registry("stock-bot-4", "experimental", "auto")
+        assert new_bot.add_to_registry("stock-bot-4")
         text = new_bot.REGISTRY.read_text()
-        assert not new_bot.add_to_registry("stock-bot-4", "experimental", "auto")
+        assert not new_bot.add_to_registry("stock-bot-4")
         assert new_bot.REGISTRY.read_text() == text
 
     @pytest.mark.parametrize("name", ["stock-bot-4", "stock-bot-12", "stock-bot-x"])
