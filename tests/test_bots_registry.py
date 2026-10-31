@@ -51,8 +51,8 @@ class TestTheRegistry:
         # template.yaml deploys TelegramOpsFunction where Environment is paper
         assert [b["name"] for b in BOTS if b["environment"] == "paper"] == ["stock-bot"]
 
-    def test_ops_and_telegram_see_every_bot(self):
-        assert ops.BOTS == tuple(b["name"] for b in BOTS)
+    def test_ops_and_telegram_see_every_bot_but_stack_1(self):
+        assert ops.BOTS == tuple(b["name"] for b in BOTS if b["name"] != "stock-bot")
         assert ops.resolve_bot("stock-bot-3") == ops.Bot("stock-bot-3")
         assert ops.Bot("stock-bot-3").stack == "stock-trading-bot-3"
 

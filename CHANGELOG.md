@@ -174,6 +174,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stack 1 runs no trading functions** — its Alpaca keys no longer work, and
+  its kill switch is engaged, so every run in market hours tried to liquidate
+  and failed (584 failed monitor runs on 2026-10-30). With [#85]'s failed-run
+  emails that would have been about one email a minute from Monday's open.
+  Stack 1 now deploys only the Telegram ops function; its bucket, with
+  trades.db, the frozen copy and the weekly archives, stays. `stock-bot` is no
+  longer offered as a bot in Telegram. ([#87])
 - **The end-of-day run no longer dies on the weekly archive, and a run that
   dies emails you** — the archive built every row of trades, snapshots and
   rejections in memory, several times over. With Bot 2's rejections table near
@@ -273,6 +280,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#81]: https://github.com/vishwakt/LambdaForge/pull/81
 [#85]: https://github.com/vishwakt/LambdaForge/pull/85
 [#86]: https://github.com/vishwakt/LambdaForge/pull/86
+[#87]: https://github.com/vishwakt/LambdaForge/pull/87
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
