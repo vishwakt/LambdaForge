@@ -40,7 +40,7 @@ def show(bot: ops.Bot) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "bot", nargs="?", help="stock-bot, stock-bot-2 or stock-bot-live"
+        "bot", nargs="?", help="a bot name from bots.json, e.g. stock-bot-2"
     )
     parser.add_argument("--apply", action="store_true", help="set the cap (default 1)")
     parser.add_argument("--value", default="1", help="multiplier to set, 1 to 4")

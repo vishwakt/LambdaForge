@@ -127,16 +127,9 @@ makes live results slightly worse; the other two make them slightly better.
 ## Deploying as a fourth stack
 
 Not done, and not recommended before the two engine gaps above are closed.
-The plumbing itself is mechanical:
-
-1. `template.yaml`: add a fourth `Environment` value with its `EnvConfig`
-   mapping (`/stock-bot-3/`, bucket suffix `-3`).
-2. A `deploy-bot3.yml` workflow, copied from `deploy-bot2.yml`.
-3. IAM: add `parameter/stock-bot-3/*` to the deployer policy, the CI role and
-   the `TelegramOpsRole`; add the new bucket ARNs to the S3 statements.
-4. `src/ops.py`: add `stock-bot-3` to `BOTS`. Telegram picks it up
-   automatically.
-5. Create the SSM parameters under `/stock-bot-3/`.
+The plumbing is one command: `python scripts/new_bot.py stock-bot-<id>` adds
+the bot to `bots.json` and stores its keys, and merging that deploys it (see
+"Add another bot" in the README).
 
 **The real prerequisite is a separate Alpaca account.** Positions and orders
 belong to an account, not to a stack. Two stacks sharing one set of

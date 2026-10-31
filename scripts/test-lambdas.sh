@@ -5,6 +5,7 @@
 #   ./scripts/test-lambdas.sh                    # Test paper stack (default)
 #   ./scripts/test-lambdas.sh stock-trading-bot-2 # Test Bot 2 stack
 #   ./scripts/test-lambdas.sh stock-trading-bot-live # Test live stack
+#   ./scripts/test-lambdas.sh stock-trading-bot-3 # Any bot in bots.json: stock-trading-bot<suffix>
 #
 # Each Lambda is invoked and the response is printed.
 # Requires: aws CLI configured with appropriate credentials.
