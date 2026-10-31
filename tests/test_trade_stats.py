@@ -154,3 +154,28 @@ class TestWeeklyDigestAvgLines:
         )
         assert "Avg Win:" not in report
         assert "Avg Loss:" not in report
+
+
+class TestWeeklyDigestRejections:
+    def test_every_rejection_this_week_is_counted(self, any_trade_log: DynamoTradeLog):
+        """The digest used to read the 100 newest rows and count those."""
+        from src.weekly_digest import generate_weekly_digest
+
+        for i in range(120):
+            any_trade_log.log_risk_rejection(
+                f"S{i:03d}", "macd", "BUY", 0.6, "Max open positions reached: 12/12"
+            )
+        any_trade_log.log_risk_rejection(
+            "S000", "macd", "BUY", 0.6, "Confidence 45.0% below minimum 50.0%"
+        )
+
+        report = generate_weekly_digest(
+            trade_log=any_trade_log,
+            config=None,
+            account_info={"equity": 10_000.0},
+            open_positions=[],
+        )
+
+        assert "RISK REJECTIONS: 121 this week" in report
+        assert "  Max open positions reached: 120" in report
+        assert "  Confidence # below minimum #: 1" in report

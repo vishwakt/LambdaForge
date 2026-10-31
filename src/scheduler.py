@@ -301,19 +301,29 @@ class TradingEngine:
                 )
 
                 if result.verdict == RiskVerdict.REJECTED:
-                    self.trade_log.log_risk_rejection(
+                    reason = "; ".join(result.rejection_reasons)
+                    # Recorded, and notified, the first time each day only:
+                    # the same refusal repeats every minute while it lasts.
+                    if self.trade_log.log_risk_rejection(
                         symbol=symbol,
                         strategy=strat_name,
                         action=signal.action.value,
                         confidence=signal.confidence,
-                        rejection_reason="; ".join(result.rejection_reasons),
-                    )
-                    self.notifier.notify_risk_rejection(
-                        symbol,
-                        strat_name,
-                        signal.action.value,
-                        result.rejection_reasons,
-                    )
+                        rejection_reason=reason,
+                    ):
+                        self.notifier.notify_risk_rejection(
+                            symbol,
+                            strat_name,
+                            signal.action.value,
+                            result.rejection_reasons,
+                        )
+                    else:
+                        logger.info(
+                            "REJECTED again today (not recorded): %s/%s: %s",
+                            symbol,
+                            strat_name,
+                            reason,
+                        )
                     continue
 
                 if self._execute_entry(

@@ -741,6 +741,7 @@ class BatchingNotifier(Notifier):
         rejections = self._rejection_buffer
         lines = [
             f"RISK REJECTIONS — {len(rejections)} signal(s) rejected",
+            "Each signal is listed the first time it is rejected each day.",
             "",
         ]
         for r in rejections:

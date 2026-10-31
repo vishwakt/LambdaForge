@@ -6,7 +6,8 @@ which is also the shape the weekly archive writes out:
     PK               SK                    one per
     TRADE#<id>       TRADE                 trade
     SNAPSHOT         <date>                daily snapshot
-    REJECT#<date>    <timestamp>#<key>     risk rejection, kept 90 days
+    REJECT#<date>    <timestamp>#<key>     risk rejection, kept 90 days; one a
+                                           day per signal and reason
     META             SEQ#trades            the last trade id handed out
     META             MIGRATION             when the table was started
 
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import uuid
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
@@ -85,6 +87,8 @@ _INT_COLUMNS = frozenset({"id", "parent_trade_id", "open_positions"})
 # Buys in these states without an exit row are lots: pending or open.
 LOT_STATUSES = ("submitted", "filled")
 REJECTION_TTL_DAYS = 90
+# A price, count, percentage or dollar amount in a rejection reason.
+_NUMBER = re.compile(r"\$?-?\d[\d,]*(?:\.\d+)?%?")
 
 _SEQ_KEY = {"PK": "META", "SK": "SEQ#trades"}
 
@@ -166,6 +170,25 @@ def trade_item(row: dict, open_lot: bool) -> dict:
     return item
 
 
+def rejection_category(reason: str) -> str:
+    """What a rejection reason says, without the numbers that move each minute.
+
+    "Max open positions reached: 12/12" and "...: 12/12 including 1 pending"
+    are the same refusal, and so are two "Position size too small" lines at
+    different prices. Each ";"-separated reason keeps the text before its
+    colon or, with no colon, its words with every number replaced by #.
+    """
+    parts = (p.strip() for p in reason.split(";"))
+    return "; ".join(
+        p.split(":", 1)[0] if ":" in p else _NUMBER.sub("#", p) for p in parts if p
+    )
+
+
+def rejection_key(symbol: str, strategy: str, action: str, reason: str) -> str:
+    """One rejection a day is recorded per key (log_risk_rejection)."""
+    return f"{symbol}|{strategy}|{action}|{rejection_category(reason)}"
+
+
 def rejection_item(row: dict, key: str) -> dict:
     """A rejection, kept REJECTION_TTL_DAYS after it happened.
 
@@ -244,6 +267,8 @@ class DynamoTradeLog:
         self.table_name = table_name
         self.table = (resource or boto3.resource("dynamodb")).Table(table_name)
         self._client = self.table.meta.client
+        # (day, rejection keys recorded that day), read once per run.
+        self._rejected: tuple[str, set[str]] | None = None
 
     # --- Trade operations ---
 
@@ -497,10 +522,28 @@ class DynamoTradeLog:
         action: str,
         confidence: float | None,
         rejection_reason: str,
-    ):
-        """Log a signal that was rejected by risk management."""
+    ) -> bool:
+        """Record a rejected signal the first time it happens each day.
+
+        A signal is refused every minute for as long as its cause lasts, and
+        each refusal used to be a row: 12-20k writes a day on one bot. Now
+        one row is kept per day for each symbol, strategy, action and reason
+        (rejection_key), holding the first occurrence's full reason. Repeats
+        are skipped before any write, since even a refused conditional write
+        is billed: today's keys are read in one query per run, the first
+        time a run rejects anything. Two runs at once can each record the
+        same first rejection; that costs one extra row, never a lost one.
+
+        Returns True if a row was written.
+        """
+        now = datetime.now()
+        day = now.date().isoformat()
+        key = rejection_key(symbol, strategy, action, rejection_reason)
+        recorded = self._rejection_keys(day)
+        if key in recorded:
+            return False
         row = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now.isoformat(),
             "symbol": symbol,
             "strategy": strategy,
             "action": action,
@@ -509,6 +552,20 @@ class DynamoTradeLog:
             "created_at": _created_at_now(),
         }
         self.table.put_item(Item=rejection_item(row, uuid.uuid4().hex[:8]))
+        recorded.add(key)
+        return True
+
+    def _rejection_keys(self, day: str) -> set[str]:
+        """The rejection keys already recorded on *day*, read once and kept."""
+        if self._rejected is None or self._rejected[0] != day:
+            keys = {
+                rejection_key(
+                    r["symbol"], r["strategy"], r["action"], r["rejection_reason"]
+                )
+                for r in self._rejections(day)
+            }
+            self._rejected = (day, keys)
+        return self._rejected[1]
 
     def get_todays_rejections(self) -> list[dict]:
         """Get all risk rejections from today."""
