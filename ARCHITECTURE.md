@@ -17,48 +17,45 @@ the kill switch without redeploying.
 ## System Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
     sched["EventBridge Scheduler<br/>New York time"]
     telegram(["Telegram"])
 
-    subgraph stack1["Stack 1: stock-trading-bot"]
-        ops["TelegramOps<br/>Lambda Function URL"]
+    subgraph stack1["Stack 1"]
+        ops["TelegramOps<br/>Function URL"]
     end
 
-    subgraph bot["One stack per bot in bots.json: stock-trading-bot-2, -3, …"]
-        monitor["MonitorStops<br/>every minute in market hours<br/>all trading"]
-        reports["DailyScan · HourlyDigest<br/>EodSnapshot · WeeklyDigest<br/>reports, no orders"]
-        kill["KillSwitch<br/>manual"]
-        table[("DynamoDB table<br/>trades, lots, snapshots, rejections")]
+    subgraph bot["Each bot in bots.json"]
+        monitor["MonitorStops<br/>every minute: all trading"]
+        reports["DailyScan, digests,<br/>EodSnapshot: reports only"]
+        kill["KillSwitch"]
+    end
+
+    subgraph data["The bot's data"]
+        table[("DynamoDB table<br/>trades, lots, snapshots,<br/>rejections")]
         bucket[("S3 bucket<br/>weekly audit archive")]
-        topic["SNS alerts topic"]
+        glacier[("Glacier Deep Archive<br/>7 years")]
     end
 
-    ssm[("SSM Parameter Store<br/>settings, Alpaca keys,<br/>strategies, kill switch")]
-    alpaca(["Alpaca API<br/>orders, positions, market data"])
-    ses["SES"]
-    glacier[("Glacier Deep Archive<br/>kept 7 years")]
-    inbox(["Email"])
+    ssm[("SSM Parameter Store<br/>settings, keys, strategies,<br/>kill switch")]
+    alpaca(["Alpaca API<br/>orders, positions, prices"])
+    mail["Email: SES, with SNS for<br/>stop alerts and as the fallback"]
 
     sched --> monitor
     sched --> reports
     telegram <--> ops
-    ops -->|"keys; set strategies, kill switch"| ssm
-    ops -->|"status, positions"| alpaca
+    ops -->|"set strategies,<br/>kill switch"| ssm
     ops -->|"kill"| kill
-    monitor -->|"settings, every run"| ssm
-    monitor <-->|"orders, quotes, bars"| alpaca
-    monitor <-->|"lots, trades, rejections"| table
-    reports -->|"account, positions"| alpaca
-    reports <--> table
-    reports -->|"EodSnapshot, first run of each week"| bucket
-    bucket -->|"lifecycle rule"| glacier
+    ops -->|"status, positions"| alpaca
+    ssm -->|"read every run"| monitor
+    monitor <-->|"orders, prices"| alpaca
     kill -->|"liquidate"| alpaca
-    monitor -->|"stop alerts"| topic
-    reports -->|"HTML digests"| ses
-    ses -.->|"if SES refuses: plain text"| topic
-    ses --> inbox
-    topic --> inbox
+    monitor <--> table
+    reports <--> table
+    reports -->|"weekly"| bucket
+    bucket -->|"lifecycle rule"| glacier
+    monitor --> mail
+    reports --> mail
 ```
 
 Every bot's stack comes from the same template; only its name differs (see
