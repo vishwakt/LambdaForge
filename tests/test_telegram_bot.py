@@ -244,7 +244,7 @@ class TestKillFlow:
 
     def test_alive(self, monkeypatch):
         monkeypatch.setattr(ops, "alive", lambda bot: "DISENGAGED")
-        assert run_command("/stock-bot-live alive").text == "stock-bot-live: DISENGAGED"
+        assert run_command("/stock-bot-3 alive").text == "stock-bot-3: DISENGAGED"
 
     def test_handler_error_is_reported_not_raised(self, monkeypatch):
         def boom(bot):

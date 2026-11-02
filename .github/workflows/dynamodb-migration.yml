@@ -1,35 +1,30 @@
 name: DynamoDB migration
 
-# Runs one trade-store step on one bot (or a read-only step on all of them)
+# Runs one trade-table step on one bot (or a read-only step on all of them)
 # inside each stack's MigrateFunction; see migrate_handler in
-# src/lambda_handlers.py for what a mode does. Bots come from bots.json.
+# src/lambda_handlers.py for what a mode does. Bots come from bots.json. The
+# file keeps its name from the move to DynamoDB, which is done.
 #
-# Every step that switches the store refuses to start from the wrong store
-# setting, so a late, repeated or out-of-order run changes nothing. A failed
-# check fails the job, and GitHub emails the failure.
+# init refuses a table with rows and reset refuses an open market or an
+# account that isn't flat, so a late or repeated run changes nothing. A
+# failed check fails the job, and GitHub emails the failure.
 #
 # Pause:           gh variable set MIGRATION_PAUSED --body true
 # Run a step now:  Actions → DynamoDB migration → Run workflow
 #                  (or: gh workflow run dynamodb-migration.yml -f mode=status -f bot=all)
 # New experiment:  -f mode=reset -f bot=stock-bot-2 -f confirm=stock-trading-bot-2
 #                  (market closed, account flat; backs the table up first)
-# Roll back:       -f mode=rollback -f bot=<bot>
 
 on:
-  schedule:
-    # UTC. Nov 2 is PST (UTC-8). Bot 2 (reset) and bot 3 (new) start on
-    # DynamoDB, so their first day on the table gets the same two checks.
-    - cron: "0 14 2 11 *" #   Mon Nov 2, 6:00 AM PST: health before the open
-    - cron: "45 15 2 11 *" #  Mon Nov 2, 7:45 AM PST: health after the first hour
   workflow_dispatch:
     inputs:
       mode:
         description: Step to run
         type: choice
-        options: [status, verify, health, init, reset, shadow, cutover, rollback]
+        options: [status, health, init, reset]
         default: status
       bot:
-        description: Bot name from bots.json, e.g. stock-bot-3 (status, verify and health also take all)
+        description: Bot name from bots.json, e.g. stock-bot-3 (status and health also take all)
         type: string
         default: all
       confirm:
@@ -55,32 +50,27 @@ jobs:
       - uses: actions/checkout@v6
       - id: pick
         env:
-          EVENT: ${{ github.event_name }}
           MODE: ${{ inputs.mode }}
           BOT: ${{ inputs.bot }}
           CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "$EVENT" = "schedule" ]; then
-            mode=health; bots='["stock-bot-2","stock-bot-3"]'
-          else
-            mode="$MODE"
-            # Stack 1 has no table, so no MigrateFunction.
-            bots=$(jq -c --arg bot "$BOT" \
-              '[.bots[] | select(.environment != "paper" and ($bot == "all" or .name == $bot)) | .name]' \
-              bots.json)
-            if [ "$bots" = "[]" ]; then
-              echo "::error::'$BOT' is not a bot with a table in bots.json"
-              exit 1
-            fi
-            case "$mode" in
-              status|verify|health) ;;
-              *)
-                if [ "$BOT" = "all" ]; then
-                  echo "::error::$mode changes a store; name one bot"
-                  exit 1
-                fi ;;
-            esac
+          mode="$MODE"
+          # Stack 1 has no table, so no MigrateFunction.
+          bots=$(jq -c --arg bot "$BOT" \
+            '[.bots[] | select(.environment != "paper" and ($bot == "all" or .name == $bot)) | .name]' \
+            bots.json)
+          if [ "$bots" = "[]" ]; then
+            echo "::error::'$BOT' is not a bot with a table in bots.json"
+            exit 1
           fi
+          case "$mode" in
+            status|health) ;;
+            *)
+              if [ "$BOT" = "all" ]; then
+                echo "::error::$mode changes a store; name one bot"
+                exit 1
+              fi ;;
+          esac
           stacks=$(jq -c '[.[] | "stock-trading-bot" + ltrimstr("stock-bot")]' <<<"$bots")
           if [ "$mode" = "reset" ] && [ "$CONFIRM" != "$(jq -r '.[0]' <<<"$stacks")" ]; then
             echo "::error::reset needs confirm set to $(jq -r '.[0]' <<<"$stacks")"

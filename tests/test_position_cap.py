@@ -88,13 +88,11 @@ class AlwaysBuy:
 
 
 @pytest.fixture
-def scan(tmp_path, monkeypatch):
+def scan(engine_config, monkeypatch):
     """Run one entry scan over 30 BUY signals with nothing ever filling."""
     from src.scheduler import TradingEngine
 
-    engine = TradingEngine(
-        AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-    )
+    engine = TradingEngine(engine_config)
     symbols = [f"S{i:02d}" for i in range(30)]
     engine.config.scheduler.symbols = symbols
     engine.config.scheduler.strategies = ["always_buy"]
@@ -130,6 +128,7 @@ def scan(tmp_path, monkeypatch):
         engine._scan_for_entries(None)
         return placed
 
+    _run.engine = engine
     return _run
 
 
@@ -154,6 +153,22 @@ class TestThroughTheScan:
 
         monkeypatch.setattr(scheduler_mod, "fetch_daily_bars_batch", no_bars)
         assert scan(open_buys={f"X{i:02d}" for i in range(12)}) == []
+
+    def test_a_refusal_is_recorded_and_notified_once_a_day(self, scan, monkeypatch):
+        """Every minute's run refuses the same 30 buys; one row each a day."""
+        notified = []
+        monkeypatch.setattr(
+            scan.engine.notifier,
+            "notify_risk_rejection",
+            lambda symbol, *a: notified.append(symbol),
+        )
+        for _ in range(3):
+            assert scan(cash=-1.0) == []
+        rows = scan.engine.trade_log.get_todays_rejections()
+        assert len(rows) == 30 and len(notified) == 30
+        assert {r["rejection_reason"] for r in rows} == {
+            "No cash available ($-1.00); no margin"
+        }
 
     def test_cash_committed_earlier_in_the_run_is_not_spent_twice(self, scan):
         """$10K cash against a $50K per-buy limit (5% of $1M): the first buy

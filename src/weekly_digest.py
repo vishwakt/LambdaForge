@@ -1,6 +1,6 @@
 """Weekly performance digest — assembles the Friday EOD report.
 
-Reuses existing TradeLog query methods and notifier formatting helpers.
+Reuses the trade log's query methods and notifier formatting helpers.
 Returns plain text suitable for SNS email delivery.
 """
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from src.config import AppConfig
+from src.dynamo_store import DynamoTradeLog, rejection_category
 from src.notifier import _format_pct, _progress_bar
-from src.trade_log import TradeLog
 
 
 def _week_bounds() -> tuple[str, str]:
@@ -62,7 +62,7 @@ def _equity_curve(snapshots: list[dict], width: int = 40) -> str:
 
 
 def generate_weekly_digest(
-    trade_log: TradeLog,
+    trade_log: DynamoTradeLog,
     config: AppConfig,
     account_info: dict,
     open_positions: list[dict],
@@ -116,9 +116,9 @@ def generate_weekly_digest(
     best = max(sell_trades, key=lambda t: t["pnl"]) if sell_trades else None
     worst = min(sell_trades, key=lambda t: t["pnl"]) if sell_trades else None
 
-    # Rejections
-    rejections = trade_log.get_recent_rejections(limit=100)
-    week_rejections = [r for r in rejections if r["timestamp"][:10] >= monday]
+    # Rejections: one row per signal and reason per day, so the whole week
+    # is a few hundred rows at most.
+    week_rejections = trade_log.get_rejections_since(monday)
 
     # --- Assemble report ---
     sections = [
@@ -231,17 +231,15 @@ def generate_weekly_digest(
 
     # Rejections
     sections.append("")
-    sections.append(f"RISK REJECTIONS: {len(week_rejections)} this week")
+    sections.append(
+        f"RISK REJECTIONS: {len(week_rejections)} this week "
+        "(each signal and reason counted once a day)"
+    )
     if week_rejections:
-        # Count by reason
+        # Count by the first reason, numbers stripped
         reason_counts: dict[str, int] = {}
         for r in week_rejections:
-            reason = r["rejection_reason"].split(";")[0].strip()
-            # Normalize: strip numbers
-            if "Max open positions" in reason:
-                reason = "Max open positions reached"
-            elif "Concentration limit" in reason:
-                reason = "Concentration limit reached"
+            reason = rejection_category(r["rejection_reason"]).split(";")[0]
             reason_counts[reason] = reason_counts.get(reason, 0) + 1
         for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1])[:3]:
             sections.append(f"  {reason}: {count}")

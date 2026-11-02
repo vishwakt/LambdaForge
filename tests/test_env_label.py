@@ -13,10 +13,6 @@ class TestEnvLabel:
         with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot/"}):
             assert _get_env_label() == "[PAPER] "
 
-    def test_live_prefix(self):
-        with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot-live/"}):
-            assert _get_env_label() == "[LIVE] "
-
     def test_bot2_prefix(self):
         with patch.dict(os.environ, {"SSM_PREFIX": "/stock-bot-2/"}):
             assert _get_env_label() == "[BOT-2] "

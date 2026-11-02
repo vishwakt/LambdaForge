@@ -265,7 +265,6 @@
       ],
       "Resource": [
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot/*",
-        "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-live/*",
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-?/*",
         "arn:aws:ssm:us-east-1:YOUR_AWS_ACCOUNT_ID:parameter/stock-bot-??/*"
       ]

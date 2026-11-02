@@ -11,12 +11,13 @@ from types import SimpleNamespace
 from alpaca.common.exceptions import APIError
 
 from src import scheduler as scheduler_mod
-from src.config import AppConfig
+from src.dynamo_store import DynamoTradeLog
 from src.scheduler import TradingEngine
-from src.trade_log import TradeLog
 
 
-def _log_buy(log: TradeLog, symbol="AAPL", order_id="ord-1", strategy="macd", qty=10):
+def _log_buy(
+    log: DynamoTradeLog, symbol="AAPL", order_id="ord-1", strategy="macd", qty=10
+):
     return log.log_trade(
         symbol=symbol,
         side="buy",
@@ -89,10 +90,8 @@ class TestTradeLogReconciliationQueries:
 
 
 class TestReconcileBuyFills:
-    def _engine(self, tmp_path):
-        return TradingEngine(
-            AppConfig(db_path=str(tmp_path / "trades.db"), notifier="console")
-        )
+    def _engine(self, engine_config):
+        return TradingEngine(engine_config)
 
     def _patch_orders(self, monkeypatch, orders):
         looked_up = []
@@ -107,8 +106,8 @@ class TestReconcileBuyFills:
         monkeypatch.setattr(scheduler_mod, "get_order", fake_get_order)
         return looked_up
 
-    def test_filled_order_gets_price_and_status(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_filled_order_gets_price_and_status(self, engine_config, monkeypatch):
+        engine = self._engine(engine_config)
         trade_id = _log_buy(engine.trade_log, qty=10)
         self._patch_orders(monkeypatch, {"ord-1": _order("filled", "10", "151.25")})
 
@@ -122,9 +121,9 @@ class TestReconcileBuyFills:
         assert [t["id"] for t in engine.trade_log.get_open_trades()] == [trade_id]
 
     def test_partial_fill_that_expired_keeps_the_filled_quantity(
-        self, tmp_path, monkeypatch
+        self, engine_config, monkeypatch
     ):
-        engine = self._engine(tmp_path)
+        engine = self._engine(engine_config)
         _log_buy(engine.trade_log, qty=10)
         self._patch_orders(monkeypatch, {"ord-1": _order("expired", "4", "150.10")})
 
@@ -135,8 +134,8 @@ class TestReconcileBuyFills:
         assert row["qty"] == 4
         assert row["fill_price"] == 150.10
 
-    def test_dead_order_without_a_fill_is_closed_out(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_dead_order_without_a_fill_is_closed_out(self, engine_config, monkeypatch):
+        engine = self._engine(engine_config)
         _log_buy(engine.trade_log)
         self._patch_orders(monkeypatch, {"ord-1": _order("canceled")})
 
@@ -148,8 +147,10 @@ class TestReconcileBuyFills:
         assert engine.trade_log.has_pending_buy("AAPL", "macd") is False
         assert engine.trade_log.get_open_trades() == []
 
-    def test_working_order_is_left_alone_until_next_cycle(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_working_order_is_left_alone_until_next_cycle(
+        self, engine_config, monkeypatch
+    ):
+        engine = self._engine(engine_config)
         _log_buy(engine.trade_log)
         self._patch_orders(monkeypatch, {"ord-1": _order("accepted")})
 
@@ -160,9 +161,9 @@ class TestReconcileBuyFills:
         assert engine.trade_log.has_pending_buy("AAPL", "macd") is True
 
     def test_unknown_order_id_is_retired_not_retried_forever(
-        self, tmp_path, monkeypatch
+        self, engine_config, monkeypatch
     ):
-        engine = self._engine(tmp_path)
+        engine = self._engine(engine_config)
         _log_buy(engine.trade_log)
         self._patch_orders(monkeypatch, {"ord-1": _http_404()})
 
@@ -172,8 +173,10 @@ class TestReconcileBuyFills:
         assert row["status"] == "unknown"
         assert engine.trade_log.has_pending_buy("AAPL", "macd") is False
 
-    def test_lookup_error_skips_that_row_and_continues(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_lookup_error_skips_that_row_and_continues(
+        self, engine_config, monkeypatch
+    ):
+        engine = self._engine(engine_config)
         _log_buy(engine.trade_log, order_id="ord-1")
         _log_buy(engine.trade_log, symbol="MSFT", order_id="ord-2")
         looked_up = self._patch_orders(
@@ -190,9 +193,9 @@ class TestReconcileBuyFills:
         assert engine.trade_log.get_trade_by_order_id("ord-2")["status"] == "submitted"
         assert engine.trade_log.get_trade_by_order_id("ord-1")["status"] == "filled"
 
-    def test_batch_is_bounded_per_cycle(self, tmp_path, monkeypatch):
+    def test_batch_is_bounded_per_cycle(self, engine_config, monkeypatch):
         """A months-long backlog must drain without tripping Alpaca's rate limit."""
-        engine = self._engine(tmp_path)
+        engine = self._engine(engine_config)
         for i in range(scheduler_mod.FILL_RECONCILE_BATCH + 5):
             _log_buy(engine.trade_log, symbol=f"S{i}", order_id=f"ord-{i}")
         looked_up = self._patch_orders(
@@ -209,9 +212,9 @@ class TestReconcileBuyFills:
         assert len(engine.trade_log.get_unreconciled_buys(limit=100)) == 5
 
     def test_monitor_cycle_reconciles_before_checking_stops(
-        self, tmp_path, monkeypatch
+        self, engine_config, monkeypatch
     ):
-        engine = self._engine(tmp_path)
+        engine = self._engine(engine_config)
         calls = []
         monkeypatch.setattr(scheduler_mod, "get_trading_client", lambda paper: None)
         monkeypatch.setattr(scheduler_mod, "get_data_client", lambda paper: None)

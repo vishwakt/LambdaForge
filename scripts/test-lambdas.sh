@@ -2,17 +2,18 @@
 # Test all Lambda functions for a given stack.
 #
 # Usage:
-#   ./scripts/test-lambdas.sh                    # Test paper stack (default)
-#   ./scripts/test-lambdas.sh stock-trading-bot-2 # Test Bot 2 stack
-#   ./scripts/test-lambdas.sh stock-trading-bot-live # Test live stack
+#   ./scripts/test-lambdas.sh                    # Test Bot 2's stack (default)
 #   ./scripts/test-lambdas.sh stock-trading-bot-3 # Any bot in bots.json: stock-trading-bot<suffix>
+#
+# Stack 1 (stock-trading-bot) only hosts the Telegram ops function, so every
+# step there reports SKIP.
 #
 # Each Lambda is invoked and the response is printed.
 # Requires: aws CLI configured with appropriate credentials.
 
 set -euo pipefail
 
-STACK="${1:-stock-trading-bot}"
+STACK="${1:-stock-trading-bot-2}"
 OUTFILE="/tmp/lambda-response.json"
 
 GREEN='\033[0;32m'
