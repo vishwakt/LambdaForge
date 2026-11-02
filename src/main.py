@@ -210,12 +210,12 @@ def cmd_run_daily(args):
 
 
 def cmd_trades(args):
-    """Show trade history from the database."""
+    """Show trade history from the trade table (TRADES_TABLE)."""
     from src.config import load_config
-    from src.trade_log import TradeLog
+    from src.store import make_trade_log
 
     config = load_config()
-    log = TradeLog(config.db_path)
+    log = make_trade_log(config)
     trades = log.get_trades(
         symbol=getattr(args, "symbol", None),
         limit=getattr(args, "limit", 20),
@@ -245,10 +245,10 @@ def cmd_trades(args):
 def cmd_risk_check(args):
     """Run risk checks against current portfolio state."""
     from src.config import load_config
-    from src.trade_log import TradeLog
+    from src.store import make_trade_log
 
     config = load_config()
-    log = TradeLog(config.db_path)
+    log = make_trade_log(config)
 
     trading_client = get_trading_client()
     account_info = get_account_info(trading_client)

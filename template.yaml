@@ -6,7 +6,7 @@ Parameters:
   Environment:
     Type: String
     Default: paper
-    AllowedValues: [paper, live, experimental]
+    AllowedValues: [paper, experimental]
     Description: Trading environment (paper is stack 1, which hosts Telegram ops and has no table).
   BotSuffix:
     Type: String
@@ -48,20 +48,21 @@ Globals:
       Environment: !Ref Environment
     Environment:
       Variables:
+        # The weekly archives (src/archive.py). The name is kept from when
+        # the bucket held trades.db; renaming the variable gains nothing.
         TRADES_DB_BUCKET: !Ref TradesDbBucket
-        TRADES_DB_KEY: trades.db
-        DB_PATH: /tmp/trades.db
         SNS_TOPIC_ARN: !Ref TradingAlertsTopic
         NOTIFIER_TYPE: console+sns
         NOTIFICATION_EMAIL: !If [HasNotificationEmail, !Ref NotificationEmail, ""]
         SSM_PREFIX: !Sub "/stock-bot${BotSuffix}/"
         NOTIFY_FREQUENCY: hourly
-        # Used only once the store parameter says shadow or dynamodb. Stack 1
-        # has no table; its store stays sqlite, so the name is never used.
+        # The trade store (src/store.py). Stack 1 has no table; its only
+        # function, TelegramOps, never opens one.
         TRADES_TABLE: !Sub "stock-trader${BotSuffix}"
 
 Resources:
-  # S3 bucket for persistent trades.db storage
+  # S3 bucket for the weekly audit archives (src/archive.py). It also holds
+  # what is left of trades.db, from before DynamoDB was the only store.
   TradesDbBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -70,11 +71,9 @@ Resources:
         Status: Enabled
       LifecycleConfiguration:
         Rules:
-          # Every handler run uploads trades.db back (up to once a minute),
-          # creating a noncurrent version. The DB is cumulative (each version
-          # contains the full history), so old versions are redundant
-          # point-in-time copies — expire them after a 3-day rollback window
-          # (covers a weekend), always keeping the 5 newest.
+          # Handler runs used to upload trades.db back (up to once a minute),
+          # each upload a noncurrent version. Nothing writes it now; the rule
+          # still expires older versions after 3 days, keeping the 5 newest.
           - Id: expire-old-db-versions
             Status: Enabled
             NoncurrentVersionExpiration:
@@ -94,8 +93,8 @@ Resources:
               - StorageClass: DEEP_ARCHIVE
                 TransitionInDays: 0
             ExpirationInDays: 2555
-          # The trades.db frozen at the DynamoDB cutover stays readable for
-          # 90 days (a rollback rebuilds trades.db from it), then archives.
+          # A trades.db frozen at a DynamoDB cutover stays readable for 90
+          # days, then archives.
           - Id: frozen-trades-db-to-deep-archive
             Status: Enabled
             Prefix: frozen/
@@ -108,8 +107,7 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # The trade store once the store parameter says dynamodb (src/store.py).
-  # One item per trades.db row; see src/dynamo_store.py for the keys.
+  # The trade store (src/store.py). See src/dynamo_store.py for the keys.
   TradesTable:
     Type: AWS::DynamoDB::Table
     Condition: IsBot
@@ -297,7 +295,7 @@ Resources:
           Properties:
             # SAM defaults the Scheduler Name to the logical ID, which is the
             # same in every stack — schedules live in one account-wide group,
-            # so paper/live/bot-2 would collide. Prefix with the stack name.
+            # so bot 2 and bot 3 would collide. Prefix with the stack name.
             Name: !Sub "${AWS::StackName}-daily-scan"
             ScheduleExpression: cron(30 9 ? * MON-FRI *)
             ScheduleExpressionTimezone: America/New_York
@@ -441,8 +439,10 @@ Resources:
       DockerContext: .
       Dockerfile: Dockerfile
 
-  # Lambda Function: Store migration (invoked by the migration workflow or by
-  # hand; no schedule). Modes are in src/migrate.py.
+  # Lambda Function: the table's lifecycle, i.e. status, health, init and
+  # reset (invoked by the migration workflow or by hand; no schedule). Modes
+  # are in migrate_handler, src/lambda_handlers.py. The name is kept from the
+  # migration: renaming it would replace the function.
   MigrateFunction:
     Type: AWS::Serverless::Function
     Condition: IsBot
@@ -546,5 +546,5 @@ Outputs:
     Value: !Ref TradesTable
   MigrateFunctionName:
     Condition: IsBot
-    Description: Store migration Lambda (see src/migrate.py)
+    Description: Trade table lifecycle Lambda (see migrate_handler in src/lambda_handlers.py)
     Value: !Ref MigrateFunction

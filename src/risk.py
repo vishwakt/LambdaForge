@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.config import RiskConfig
+from src.dynamo_store import DynamoTradeLog
 from src.market_hours import trading_day_start_utc
 from src.strategies.base import Action, Signal
-from src.trade_log import TradeLog
 
 
 class RiskVerdict(Enum):
@@ -28,7 +28,7 @@ class RiskCheckResult:
 class RiskManager:
     """Evaluates signals against portfolio-level risk rules."""
 
-    def __init__(self, config: RiskConfig, trade_log: TradeLog):
+    def __init__(self, config: RiskConfig, trade_log: DynamoTradeLog):
         self.config = config
         self.trade_log = trade_log
 

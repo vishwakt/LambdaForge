@@ -6,7 +6,6 @@ change within the day. Any exit now blocks new buys of that symbol for the
 rest of the New York trading day.
 """
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -45,12 +44,14 @@ def log_sell(trade_log, symbol="AXTI", at=None):
         take_profit=None,
     )
     if at is not None:
-        conn = sqlite3.connect(trade_log.db_path)
-        conn.execute(
-            "UPDATE trades SET timestamp = ? WHERE id = ?", (at.isoformat(), trade_id)
+        # The sell's time is in the item and in its GSI1 (time order) key.
+        ts = at.replace(tzinfo=None).isoformat()
+        trade_log.table.update_item(
+            Key={"PK": f"TRADE#{trade_id}", "SK": "TRADE"},
+            UpdateExpression="SET #ts = :ts, GSI1SK = :sk",
+            ExpressionAttributeNames={"#ts": "timestamp"},
+            ExpressionAttributeValues={":ts": ts, ":sk": f"{ts}#{trade_id:012d}"},
         )
-        conn.commit()
-        conn.close()
     return trade_id
 
 

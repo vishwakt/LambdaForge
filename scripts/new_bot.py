@@ -42,12 +42,12 @@ def registry_text(registry: dict) -> str:
     return f'{{\n  "_instructions": [\n{instructions}\n  ],\n  "bots": [\n{bots}\n  ]\n}}\n'
 
 
-def add_to_registry(name: str, environment: str, deploy: str) -> bool:
+def add_to_registry(name: str) -> bool:
     """Append the bot to bots.json. False if it is already there."""
     registry = json.loads(REGISTRY.read_text())
     if any(b["name"] == name for b in registry["bots"]):
         return False
-    entry = {"name": name, "environment": environment, "deploy": deploy}
+    entry = {"name": name, "environment": "experimental"}
     REGISTRY.write_text(registry_text({**registry, "bots": [*registry["bots"], entry]}))
     return True
 
@@ -105,17 +105,13 @@ def ask_for_keys(ssm, prefix: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("name", help="stock-bot-<1 or 2 characters>, e.g. stock-bot-4")
-    p.add_argument(
-        "--environment", default="experimental", choices=["experimental", "live"]
-    )
-    p.add_argument("--deploy", default="auto", choices=["auto", "manual"])
     args = p.parse_args(argv)
     if not NAME.match(args.name):
         p.error("name must be stock-bot- plus 1 or 2 lowercase letters or digits")
 
     prefix = f"/{args.name}/"
     stack = args.name.replace("stock-bot", "stock-trading-bot", 1)
-    added = add_to_registry(args.name, args.environment, args.deploy)
+    added = add_to_registry(args.name)
     print(f"bots.json: {'added' if added else 'already has'} {args.name}")
 
     ssm = boto3.client("ssm")

@@ -53,12 +53,10 @@ class SchedulerConfig:
 class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
-    db_path: str = str(PROJECT_ROOT / "trades.db")
     trading_mode: str = "paper"  # "paper" or "live"
     notifier: str = "console"  # "console", "sns", "console+sns"
     notify_frequency: str = "hourly"  # "realtime", "hourly", "daily"
-    store: str = "sqlite"  # "sqlite", "shadow", "dynamodb" (see src/store.py)
-    table_name: str = ""  # This stack's DynamoDB table, from TRADES_TABLE
+    table_name: str = ""  # The trade table (src/store.py), from TRADES_TABLE
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -88,8 +86,6 @@ def load_config(config_path: str | None = None) -> AppConfig:
                 if hasattr(config.scheduler, key):
                     setattr(config.scheduler, key, value)
 
-        if "db_path" in data:
-            config.db_path = data["db_path"]
         if "trading_mode" in data:
             config.trading_mode = data["trading_mode"]
         if "notifier" in data:
@@ -101,10 +97,6 @@ def load_config(config_path: str | None = None) -> AppConfig:
     env_mode = os.getenv("TRADING_MODE")
     if env_mode:
         config.trading_mode = env_mode
-
-    env_db = os.getenv("DB_PATH")
-    if env_db:
-        config.db_path = env_db
 
     env_notifier = os.getenv("NOTIFIER_TYPE")
     if env_notifier:
@@ -129,10 +121,6 @@ def load_config(config_path: str | None = None) -> AppConfig:
     if config.trading_mode not in ("paper", "live"):
         raise ValueError(
             f"trading_mode must be 'paper' or 'live', got '{config.trading_mode}'"
-        )
-    if config.store not in ("sqlite", "shadow", "dynamodb"):
-        raise ValueError(
-            f"store must be 'sqlite', 'shadow' or 'dynamodb', got '{config.store}'"
         )
 
     return config

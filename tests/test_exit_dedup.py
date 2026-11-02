@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 from src import scheduler as scheduler_mod
 from src.client import has_open_sell_order
-from src.config import AppConfig
 from src.scheduler import TradingEngine
 from src.strategies.base import Action, Signal
 
@@ -41,16 +40,11 @@ class TestHasOpenSellOrder:
 
 
 class TestExecuteExitDedup:
-    def _engine(self, tmp_path):
-        return TradingEngine(
-            AppConfig(
-                db_path=str(tmp_path / "trades.db"),
-                notifier="console",
-            )
-        )
+    def _engine(self, engine_config):
+        return TradingEngine(engine_config)
 
-    def test_skips_when_sell_already_open(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_skips_when_sell_already_open(self, engine_config, monkeypatch):
+        engine = self._engine(engine_config)
         placed = []
         monkeypatch.setattr(scheduler_mod, "has_open_sell_order", lambda c, s: True)
         monkeypatch.setattr(
@@ -68,8 +62,8 @@ class TestExecuteExitDedup:
 
         assert placed == []
 
-    def test_places_order_when_nothing_pending(self, tmp_path, monkeypatch):
-        engine = self._engine(tmp_path)
+    def test_places_order_when_nothing_pending(self, engine_config, monkeypatch):
+        engine = self._engine(engine_config)
         placed = []
         monkeypatch.setattr(scheduler_mod, "has_open_sell_order", lambda c, s: False)
         monkeypatch.setattr(scheduler_mod, "get_position_qty", lambda c, s: 10.0)
