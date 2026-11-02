@@ -7,6 +7,8 @@ rejected, so a held symbol with a standing BUY signal doesn't log a rejection
 row every minute.
 """
 
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -46,6 +48,11 @@ def scan(engine_config, monkeypatch):
     )
     monkeypatch.setattr(
         scheduler_mod,
+        "get_latest_trade",
+        lambda c, symbol: {"price": 100.0, "timestamp": datetime.now(timezone.utc)},
+    )
+    monkeypatch.setattr(
+        scheduler_mod,
         "get_account_info",
         lambda c: {"cash": 1e6, "equity": 1e6, "portfolio_value": 1e6},
     )
@@ -70,7 +77,7 @@ def scan(engine_config, monkeypatch):
         monkeypatch.setattr(
             scheduler_mod, "get_open_buy_symbols", lambda c: set(open_buys)
         )
-        engine._scan_for_entries(None)
+        engine._scan_for_entries(None, None)
         return placed, engine
 
     return _run

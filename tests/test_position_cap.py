@@ -7,6 +7,8 @@ not a position, so every check in the burst saw the same small count, and
 position sizing used the cash figure with no floor.
 """
 
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -102,6 +104,11 @@ def scan(engine_config, monkeypatch):
         "fetch_daily_bars_batch",
         lambda syms, days: {s: flat_bars() for s in syms},
     )
+    monkeypatch.setattr(
+        scheduler_mod,
+        "get_latest_trade",
+        lambda c, symbol: {"price": 100.0, "timestamp": datetime.now(timezone.utc)},
+    )
     monkeypatch.setattr(scheduler_mod, "get_positions", lambda client: [])
     placed = []
     monkeypatch.setattr(
@@ -125,7 +132,7 @@ def scan(engine_config, monkeypatch):
             return set(open_buys)
 
         monkeypatch.setattr(scheduler_mod, "get_open_buy_symbols", _open_buys)
-        engine._scan_for_entries(None)
+        engine._scan_for_entries(None, None)
         return placed
 
     _run.engine = engine

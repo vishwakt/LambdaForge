@@ -205,6 +205,12 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
   `MonitorStops` run failed and emailed, so its stops went unchecked.
   Positions are now read from the API as JSON, keeping only the fields the
   bot uses. ([#94])
+- **No buy without a live price** — at the same open, bot 3 bought FIEE,
+  which had no trade since Oct 22, and every stop check after the fill
+  skipped it for want of a live price. Before a buy, the entry scan now asks
+  for the price the stop check uses (the last trade, or the quote midpoint,
+  under 15 minutes old) and skips the symbol without one. A thin name with no
+  print yet at the open waits for one. ([#95])
 - **Stack 1 runs no trading functions** — its Alpaca keys no longer work, and
   its kill switch is engaged, so every run in market hours tried to liquidate
   and failed (584 failed monitor runs on 2026-10-30). With [#85]'s failed-run
@@ -314,6 +320,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#87]: https://github.com/vishwakt/LambdaForge/pull/87
 [#88]: https://github.com/vishwakt/LambdaForge/pull/88
 [#94]: https://github.com/vishwakt/LambdaForge/pull/94
+[#95]: https://github.com/vishwakt/LambdaForge/pull/95
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
