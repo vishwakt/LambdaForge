@@ -107,20 +107,25 @@ def get_account_info(client: TradingClient) -> dict:
 
 
 def get_positions(client: TradingClient) -> list[dict]:
-    """Fetch all open positions."""
-    positions = client.get_all_positions()
+    """Fetch all open positions.
+
+    Read as raw JSON, not through alpaca-py's Position model: the model
+    rejects any exchange its enum doesn't list, so one holding on a new
+    venue (TXSE, 2026-11-02) failed every run, stop checks included.
+    """
+    positions = client.get("/positions")
     return [
         {
-            "symbol": p.symbol,
-            "qty": float(p.qty),
-            "side": p.side.value if p.side else str(p.side),
-            "market_value": float(p.market_value),
-            "avg_entry_price": float(p.avg_entry_price),
-            "current_price": float(p.current_price),
-            "unrealized_pl": float(p.unrealized_pl),
-            "unrealized_plpc": float(p.unrealized_plpc),
-            "unrealized_intraday_pl": float(p.unrealized_intraday_pl or 0),
-            "unrealized_intraday_plpc": float(p.unrealized_intraday_plpc or 0),
+            "symbol": p["symbol"],
+            "qty": float(p["qty"]),
+            "side": str(p["side"]),
+            "market_value": float(p["market_value"]),
+            "avg_entry_price": float(p["avg_entry_price"]),
+            "current_price": float(p["current_price"]),
+            "unrealized_pl": float(p["unrealized_pl"]),
+            "unrealized_plpc": float(p["unrealized_plpc"]),
+            "unrealized_intraday_pl": float(p.get("unrealized_intraday_pl") or 0),
+            "unrealized_intraday_plpc": float(p.get("unrealized_intraday_plpc") or 0),
         }
         for p in positions
     ]
@@ -262,10 +267,10 @@ def get_position_qty(trading_client: TradingClient, symbol: str) -> float:
 
     Read immediately before every sell. A positions list fetched earlier in
     the run is stale once a sell has filled, and selling from it again is
-    how the bot went short (ARM, 2026-09-24).
+    how the bot went short (ARM, 2026-09-24). Raw JSON, like get_positions.
     """
     try:
-        return float(trading_client.get_open_position(symbol).qty)
+        return float(trading_client.get(f"/positions/{symbol}")["qty"])
     except APIError as e:
         if e.status_code == 404:
             return 0.0
