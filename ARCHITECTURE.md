@@ -16,31 +16,54 @@ the kill switch without redeploying.
 
 ## System Architecture
 
+```mermaid
+flowchart TB
+    sched["EventBridge Scheduler<br/>New York time"]
+    telegram(["Telegram"])
+
+    subgraph stack1["Stack 1: stock-trading-bot"]
+        ops["TelegramOps<br/>Lambda Function URL"]
+    end
+
+    subgraph bot["One stack per bot in bots.json: stock-trading-bot-2, -3, …"]
+        monitor["MonitorStops<br/>every minute in market hours<br/>all trading"]
+        reports["DailyScan · HourlyDigest<br/>EodSnapshot · WeeklyDigest<br/>reports, no orders"]
+        kill["KillSwitch<br/>manual"]
+        table[("DynamoDB table<br/>trades, lots, snapshots, rejections")]
+        bucket[("S3 bucket<br/>weekly audit archive")]
+        topic["SNS alerts topic"]
+    end
+
+    ssm[("SSM Parameter Store<br/>settings, Alpaca keys,<br/>strategies, kill switch")]
+    alpaca(["Alpaca API<br/>orders, positions, market data"])
+    ses["SES"]
+    glacier[("Glacier Deep Archive<br/>kept 7 years")]
+    inbox(["Email"])
+
+    sched --> monitor
+    sched --> reports
+    telegram <--> ops
+    ops -->|"keys; set strategies, kill switch"| ssm
+    ops -->|"status, positions"| alpaca
+    ops -->|"kill"| kill
+    monitor -->|"settings, every run"| ssm
+    monitor <-->|"orders, quotes, bars"| alpaca
+    monitor <-->|"lots, trades, rejections"| table
+    reports -->|"account, positions"| alpaca
+    reports <--> table
+    reports -->|"EodSnapshot, first run of each week"| bucket
+    bucket -->|"lifecycle rule"| glacier
+    kill -->|"liquidate"| alpaca
+    monitor -->|"stop alerts"| topic
+    reports -->|"HTML digests"| ses
+    ses -.->|"if SES refuses: plain text"| topic
+    ses --> inbox
+    topic --> inbox
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          AWS EventBridge                            │
-│   09:30 ET ──► DailyScan   │  Every 1 min ──► MonitorStops         │
-│   15:55 ET ──► EodSnapshot │  Hourly :30 mkt hrs ──► HourlyDigest  │
-│   15:55 ET Fri ──► WeeklyDigest │  Manual ──► KillSwitch           │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  AWS Lambda     │  ARM64 (Graviton2)
-                    │  Container      │  Docker image via ECR
-                    └────────┬────────┘
-                             │
-           ┌─────────────────┼─────────────────┐
-           │                 │                 │
-   ┌───────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-   │  DynamoDB    │  │  SSM Param  │  │  Alpaca API  │
-   │  trade table │  │    Store    │  │  (paper/live)│
-   └──────────────┘  └─────────────┘  └─────────────┘
-           │
-   ┌───────▼──────────────────────┐
-   │  SNS Topic → Email (SES)     │
-   │  Trade alerts, daily digest  │
-   └──────────────────────────────┘
-```
+
+Every bot's stack comes from the same template; only its name differs (see
+[Multi-Stack Architecture](#multi-stack-architecture)). Stack 1 runs only the
+Telegram function, which reaches every bot in `bots.json`.
 
 ---
 
@@ -48,8 +71,8 @@ the kill switch without redeploying.
 
 | Function | Schedule | Purpose |
 |----------|----------|---------|
-| `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Full daily scan: exits, entries, risk checks |
-| `MonitorStopsFunction` | `rate(1 minute)` during market hours | Trailing stop-loss enforcement, opportunistic entries |
+| `DailyScanFunction` | `cron(30 9 ? * MON-FRI *)` America/New_York (09:30 ET) | Market-open summary email; places no orders and writes nothing |
+| `MonitorStopsFunction` | `rate(1 minute)` during market hours | All trading: the open snapshot, fill reconciliation, trailing stops, strategy exits, and entries with risk checks |
 | `EodSnapshotFunction` | `cron(55 15 ? * MON-FRI *)` America/New_York (15:55 ET) | End-of-day P&L snapshot + benchmark comparison; after that, on the first run of each ISO week, streams the table's trades, snapshots and rejections to `archive/YYYY-Www.json.gz` in the stack's bucket (write-once) |
 | `WeeklyDigestFunction` | `cron(55 15 ? * FRI *)` America/New_York (15:55 ET Fri) | Weekly performance report |
 | `HourlyDigestFunction` | `cron(30 10-15 ? * MON-FRI *)` America/New_York (10:30–15:30 ET) | Consolidated trade activity digest |
@@ -64,37 +87,33 @@ All trading functions check the kill switch at the top of every invocation befor
 
 ## Data Flow
 
-### Daily Scan (09:30 ET)
+### Daily Scan (09:30 ET): a read-only summary
 
-```
-DailyScanFunction
-  ├── is_market_open() guard
-  ├── _check_kill_switch() — reads SSM directly, every call
-  ├── load_config() — SSM + env vars + config.json
-  └── TradingEngine.run_daily_scan()
-        ├── Save daily equity snapshot
-        ├── Check exits: strategy signals on all open positions
-        │     └── place_market_order("sell") if signal = SELL
-        ├── Scan entries: strategy signals on 218-symbol watchlist
-        │     ├── RiskManager.check() — 6 pre-trade gates
-        │     └── place_market_order("buy") if approved
-        └── BatchingNotifier.flush_trades() → SES email digest
+```mermaid
+flowchart TB
+    start["DailyScanFunction, 09:30 ET"] --> mkt{"Market open?"}
+    mkt -->|"no"| skip["Skip"]
+    mkt -->|"yes"| ks{"Kill switch engaged?"}
+    ks -->|"yes"| liq["Liquidate every position"]
+    ks -->|"no"| read["Read the account and positions from Alpaca,<br/>and the last snapshot from the table"]
+    read --> email["Market-open summary email<br/>places no orders, writes nothing"]
 ```
 
 ### Stop-Loss Monitor (every 1 minute)
 
-```
-MonitorStopsFunction
-  ├── is_market_open() — exits early outside 09:30–16:00 ET Mon–Fri
-  ├── _check_kill_switch()
-  └── TradingEngine.monitor_stops()
-        ├── _reconcile_buy_fills() — record fill price/qty of pending buys (≤50 lookups/cycle)
-        ├── _check_trailing_stops() — real-time quotes via Alpaca
-        │     ├── Ratchet stop up to max(HWM × (1 − trailing_stop_pct), HWM − 2×ATR); never lowered
-        │     │   (skipped for strategies declaring uses_trailing_stop = False; their stop_loss stands as a floor)
-        │     └── Sell if price <= trailing_stop
-        ├── _check_exit_signals() — strategy SELL on open positions
-        └── _scan_for_entries() — opportunistic buys (dedup check)
+```mermaid
+flowchart TB
+    start["MonitorStopsFunction, every minute"] --> mkt{"Market open?"}
+    mkt -->|"no"| skip["Skip"]
+    mkt -->|"yes"| ks{"Kill switch engaged?"}
+    ks -->|"yes"| liq["Liquidate every position"]
+    ks -->|"no"| p0["0. Bookkeeping<br/>the day's first run saves the open snapshot<br/>record fills of pending buys, up to 50 a run<br/>close lots the broker no longer holds"]
+    p0 --> p1["1. Trailing stops on live prices<br/>ratchet each lot's stop up, never down<br/>(not for strategies that own their exits)<br/>sell at or below the stop"]
+    p1 --> p2["2. Exit signals<br/>the strategy that bought a lot decides its exit"]
+    p2 --> full{"3. Stack full?"}
+    full -->|"yes"| flush["Send batched notifications"]
+    full -->|"no"| p3["Entry signals on the watchlist<br/>skip symbols held or being bought<br/>risk checks, then a live price, then buy"]
+    p3 --> flush
 ```
 
 ---
@@ -362,3 +381,13 @@ scripts/migration_step.sh stock-trading-bot-2 init
 ```
 
 CI/CD via GitHub Actions: every bot in `bots.json` deploys on each push to `main`.
+
+```mermaid
+flowchart LR
+    push["Push to main<br/>docs-only pushes skipped"] --> wf["Build & Deploy<br/>one job per bot in bots.json"]
+    wf -->|"build arm64 image"| ecr[("ECR repository<br/>one per bot")]
+    wf -->|"sam deploy"| stack["The bot's CloudFormation stack"]
+    ecr -->|"container image"| fns["The bot's Lambda functions"]
+    stack --> fns
+    wf -.->|"first deploy only"| init["init: start the empty table"]
+```
