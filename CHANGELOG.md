@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(nothing yet — changes after v0.2.0 land here)*
+
+---
+
+## [0.2.0] — 2026-11-02
+
 Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [Upgrading from 0.1](README.md#upgrading-from-01) before you deploy.
 
@@ -460,5 +468,6 @@ First external contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-[Unreleased]: https://github.com/vishwakt/LambdaForge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vishwakt/LambdaForge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/vishwakt/LambdaForge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/vishwakt/LambdaForge/releases/tag/v0.1.0
