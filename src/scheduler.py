@@ -209,7 +209,7 @@ class TradingEngine:
                     self._execute_exit(trading_client, pos, signal, strat_name)
                     break
 
-    def _scan_for_entries(self, trading_client):
+    def _scan_for_entries(self, trading_client, data_client):
         """Scan watchlist for new BUY signals."""
         # One snapshot per run, then track what this run commits. Re-reading
         # positions per signal doesn't help: an order that hasn't filled is
@@ -315,6 +315,17 @@ class TradingEngine:
                         result.rejection_reasons,
                     )
                     continue
+
+                # Buy only what the stop check can price. FIEE had no trade
+                # since Oct 22 when bot 3 bought it at the 2026-11-02 open,
+                # and its stop went unchecked until the feed came back.
+                try:
+                    live_price = self._live_price(data_client, symbol, "entry")
+                except Exception as e:
+                    logger.error("Can't price %s, skipping entry: %s", symbol, e)
+                    live_price = None
+                if live_price is None:
+                    break
 
                 if self._execute_entry(
                     trading_client, signal, result, strat_name, bars=bars
@@ -518,7 +529,7 @@ class TradingEngine:
         self._check_exit_signals(trading_client, open_positions)
 
         # Phase 3: Scan for new entry signals (batched bars)
-        self._scan_for_entries(trading_client)
+        self._scan_for_entries(trading_client, data_client)
 
         self.notifier.flush_trades()
         self._notify_rate_limits()
@@ -662,7 +673,9 @@ class TradingEngine:
                 continue
 
             try:
-                current_price = self._stop_check_price(data_client, trade["symbol"])
+                current_price = self._live_price(
+                    data_client, trade["symbol"], "stop check"
+                )
                 if current_price is None:
                     continue
                 stop_level = self._stop_level(trade, current_price)
@@ -753,14 +766,14 @@ class TradingEngine:
                 shares,
             )
 
-    def _stop_check_price(self, data_client, symbol: str) -> float | None:
-        """The price a stop is checked against, or None if there's no live one.
+    def _live_price(self, data_client, symbol: str, skipping: str) -> float | None:
+        """The price stops and entries are checked against, or None if there's no live one.
 
         The last trade, not the bid: on the free IEX feed the best bid is often
         far below where the stock is trading (AXTI's stop fired on a $71.00 bid
         with the stock at $74.92). A thin name may have no recent print, so the
         quote midpoint is the fallback. Neither fresh means holiday, halt or
-        feed trouble, and the check is skipped.
+        feed trouble, and the caller skips what ``skipping`` names.
         """
         trade = get_latest_trade(data_client, symbol)
         if is_quote_fresh(trade.get("timestamp")):
@@ -770,9 +783,10 @@ class TradingEngine:
         if is_quote_fresh(quote.get("timestamp")) and bid > 0 and ask > 0:
             return (bid + ask) / 2
         logger.warning(
-            "No live price for %s (last trade %s) — skipping stop check",
+            "No live price for %s (last trade %s) — skipping %s",
             symbol,
             trade.get("timestamp"),
+            skipping,
         )
         return None
 
