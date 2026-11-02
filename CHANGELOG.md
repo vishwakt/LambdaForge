@@ -198,6 +198,13 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 
 ### Fixed
 
+- **A holding on a new exchange no longer fails every run** — on 2026-11-02
+  Alpaca began listing CECO on TXSE, the Texas Stock Exchange. alpaca-py's
+  `Position` model rejects any exchange its enum doesn't list, and the release
+  that knows TXSE needs Python 3.10. From the open, every bot 3
+  `MonitorStops` run failed and emailed, so its stops went unchecked.
+  Positions are now read from the API as JSON, keeping only the fields the
+  bot uses. ([#94])
 - **Stack 1 runs no trading functions** — its Alpaca keys no longer work, and
   its kill switch is engaged, so every run in market hours tried to liquidate
   and failed (584 failed monitor runs on 2026-10-30). With [#85]'s failed-run
@@ -306,6 +313,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#86]: https://github.com/vishwakt/LambdaForge/pull/86
 [#87]: https://github.com/vishwakt/LambdaForge/pull/87
 [#88]: https://github.com/vishwakt/LambdaForge/pull/88
+[#94]: https://github.com/vishwakt/LambdaForge/pull/94
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
