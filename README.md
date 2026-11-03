@@ -369,6 +369,48 @@ polling, and `setWebhook` again afterwards.
 
 ## 🏗️ Architecture
 
+```mermaid
+flowchart LR
+    sched["EventBridge Scheduler<br/>New York time"]
+    telegram(["Telegram"])
+
+    subgraph stack1["Stack 1"]
+        ops["TelegramOps<br/>Function URL"]
+    end
+
+    subgraph bot["Each bot in bots.json"]
+        monitor["MonitorStops<br/>every minute: all trading"]
+        reports["DailyScan, digests,<br/>EodSnapshot: reports only"]
+        kill["KillSwitch"]
+    end
+
+    subgraph data["The bot's data"]
+        table[("DynamoDB table<br/>trades, lots, snapshots,<br/>rejections")]
+        bucket[("S3 bucket<br/>weekly audit archive")]
+        glacier[("Glacier Deep Archive<br/>7 years")]
+    end
+
+    ssm[("SSM Parameter Store<br/>settings, keys, strategies,<br/>kill switch")]
+    alpaca(["Alpaca API<br/>orders, positions, prices"])
+    mail["Email: SES, with SNS for<br/>stop alerts and as the fallback"]
+
+    sched --> monitor
+    sched --> reports
+    telegram <--> ops
+    ops -->|"set strategies,<br/>kill switch"| ssm
+    ops -->|"kill"| kill
+    ops -->|"status, positions"| alpaca
+    ssm -->|"read every run"| monitor
+    monitor <-->|"orders, prices"| alpaca
+    kill -->|"liquidate"| alpaca
+    monitor <--> table
+    reports <--> table
+    reports -->|"weekly"| bucket
+    bucket -->|"lifecycle rule"| glacier
+    monitor --> mail
+    reports --> mail
+```
+
 Each bot runs six Lambda functions — five on EventBridge schedules, plus a manually invoked kill switch — and a seventh, `MigrateFunction`, for the table's lifecycle steps. Stack 1 runs only the Telegram function:
 
 | Function | Schedule | Purpose |
