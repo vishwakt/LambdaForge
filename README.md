@@ -369,6 +369,8 @@ polling, and `setWebhook` again afterwards.
 
 ## 🏗️ Architecture
 
+![System architecture: EventBridge Scheduler runs each bot's Lambda functions, which trade through the Alpaca API, keep their data in DynamoDB and S3, and read settings from SSM Parameter Store](docs/diagrams/system.svg)
+
 Each bot runs six Lambda functions — five on EventBridge schedules, plus a manually invoked kill switch — and a seventh, `MigrateFunction`, for the table's lifecycle steps. Stack 1 runs only the Telegram function:
 
 | Function | Schedule | Purpose |

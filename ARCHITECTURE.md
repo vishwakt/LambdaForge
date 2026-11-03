@@ -16,47 +16,9 @@ the kill switch without redeploying.
 
 ## System Architecture
 
-```mermaid
-flowchart LR
-    sched["EventBridge Scheduler<br/>New York time"]
-    telegram(["Telegram"])
+![System architecture: EventBridge Scheduler runs each bot's Lambda functions, which trade through the Alpaca API, keep their data in DynamoDB and S3, and read settings from SSM Parameter Store](docs/diagrams/system.svg)
 
-    subgraph stack1["Stack 1"]
-        ops["TelegramOps<br/>Function URL"]
-    end
-
-    subgraph bot["Each bot in bots.json"]
-        monitor["MonitorStops<br/>every minute: all trading"]
-        reports["DailyScan, digests,<br/>EodSnapshot: reports only"]
-        kill["KillSwitch"]
-    end
-
-    subgraph data["The bot's data"]
-        table[("DynamoDB table<br/>trades, lots, snapshots,<br/>rejections")]
-        bucket[("S3 bucket<br/>weekly audit archive")]
-        glacier[("Glacier Deep Archive<br/>7 years")]
-    end
-
-    ssm[("SSM Parameter Store<br/>settings, keys, strategies,<br/>kill switch")]
-    alpaca(["Alpaca API<br/>orders, positions, prices"])
-    mail["Email: SES, with SNS for<br/>stop alerts and as the fallback"]
-
-    sched --> monitor
-    sched --> reports
-    telegram <--> ops
-    ops -->|"set strategies,<br/>kill switch"| ssm
-    ops -->|"kill"| kill
-    ops -->|"status, positions"| alpaca
-    ssm -->|"read every run"| monitor
-    monitor <-->|"orders, prices"| alpaca
-    kill -->|"liquidate"| alpaca
-    monitor <--> table
-    reports <--> table
-    reports -->|"weekly"| bucket
-    bucket -->|"lifecycle rule"| glacier
-    monitor --> mail
-    reports --> mail
-```
+The source is [`docs/diagrams/system.mmd`](docs/diagrams/system.mmd); see [docs/diagrams](docs/diagrams/README.md) to change it.
 
 Every bot's stack comes from the same template; only its name differs (see
 [Multi-Stack Architecture](#multi-stack-architecture)). Stack 1 runs only the
