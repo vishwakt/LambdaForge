@@ -74,8 +74,85 @@ jobs:
           echo "bots=$bots" >> "$GITHUB_OUTPUT"
           echo "Deploying: $bots"
 
-  deploy:
+  # Builds the image once and pushes it to one repository that every bot
+  # deploys from. Each bot's image used to be built and stored on its own,
+  # identical but billed once per bot.
+  build:
     needs: [test, plan]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # Queue, don't cancel, so back-to-back pushes reach the deploy jobs in
+    # order and an older image can't deploy after a newer one.
+    concurrency:
+      group: build-image
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPO: stock-trading-bot-images
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up QEMU for ARM builds
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repo, cost tags, and lifecycle policy
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_REPO"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          # ECR repos live outside the CloudFormation stacks, so stack tags do
+          # not reach them. Tag explicitly or this cost is unattributable.
+          aws ecr tag-resource \
+            --resource-arn "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/${ECR_REPO}" \
+            --tags Key=Project,Value=stock-trading-bot Key=Environment,Value=shared
+          # Keeps the 3 newest images and any image a bot runs (see the
+          # file). Idempotent — re-applying the same policy is a no-op.
+          aws ecr put-lifecycle-policy \
+            --repository-name "$ECR_REPO" \
+            --lifecycle-policy-text file://ecr-lifecycle-policy.json
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: SAM Build
+        run: sam build
+
+      # Every function runs the same image, so SAM pushes one. The packaged
+      # template points each function at it, and every bot deploys that file.
+      - name: Push the image and write the packaged template
+        env:
+          REPOSITORY: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}
+        run: |
+          sam package \
+            --template-file .aws-sam/build/template.yaml \
+            --image-repository "$REPOSITORY" \
+            --resolve-s3 \
+            --output-template-file packaged.yaml
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packaged-template
+          path: packaged.yaml
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: [test, plan, build]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     strategy:
       fail-fast: false
