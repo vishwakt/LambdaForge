@@ -7,7 +7,7 @@ couldn't check a stop on.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -17,8 +17,8 @@ from src import scheduler as scheduler_mod
 from src.scheduler import TradingEngine
 from src.strategies.base import Action, Signal
 
-NOW = datetime.now(timezone.utc)
-STALE = datetime(2026, 10, 22, 19, 59, tzinfo=timezone.utc)
+NOW = datetime.now(UTC)
+STALE = datetime(2026, 10, 22, 19, 59, tzinfo=UTC)
 
 
 def flat_bars():

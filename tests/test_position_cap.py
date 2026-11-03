@@ -7,7 +7,7 @@ not a position, so every check in the burst saw the same small count, and
 position sizing used the cash figure with no floor.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -107,7 +107,7 @@ def scan(engine_config, monkeypatch):
     monkeypatch.setattr(
         scheduler_mod,
         "get_latest_trade",
-        lambda c, symbol: {"price": 100.0, "timestamp": datetime.now(timezone.utc)},
+        lambda c, symbol: {"price": 100.0, "timestamp": datetime.now(UTC)},
     )
     monkeypatch.setattr(scheduler_mod, "get_positions", lambda client: [])
     placed = []

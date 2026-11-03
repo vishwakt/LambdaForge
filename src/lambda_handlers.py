@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
@@ -346,7 +346,7 @@ def _start_on_table(store: DynamoTradeLog, **details):
     store.table.put_item(
         Item={
             **MIGRATION_KEY,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             **details,
         }
     )
@@ -362,7 +362,7 @@ def _migration_health(config, store: DynamoTradeLog) -> dict:
     """
     if not _marker(store):
         return {"ok": False, "error": "the table has not been started (run init)"}
-    since = datetime.now(timezone.utc) - timedelta(hours=20)
+    since = datetime.now(UTC) - timedelta(hours=20)
     recorded = {
         t["order_id"]
         for t in store.get_trades_since(since.replace(tzinfo=None).isoformat())
