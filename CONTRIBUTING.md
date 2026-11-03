@@ -9,7 +9,7 @@ Thank you for your interest in contributing. This document covers how to set up 
 ```bash
 git clone https://github.com/vishwakt/LambdaForge.git
 cd LambdaForge
-python -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
 # Copy env template and add your Alpaca paper trading keys
@@ -182,7 +182,7 @@ If you want to add a notification channel (Telegram, Slack, SMS, etc.):
 - `const` arrow functions... just kidding, this is Python. But keep functions small and single-purpose.
 - `ruff` for lint and formatting — CI runs both, so run both locally:
   `ruff check src/ tests/ && ruff format --check src/ tests/`
-- CI also runs `pytest` on Python 3.9, 3.11 and 3.12, `sam validate --lint`, and a gitleaks secret scan; all six checks must pass before merge.
+- CI also runs `pytest` on Python 3.14 and 3.15, `sam validate --lint`, and a gitleaks secret scan. The four checks other than 3.15 must pass before merge; 3.15 is an early warning for the next runtime bump.
 - No hardcoded values — use SSM or `config.json` defaults
 
 ---
