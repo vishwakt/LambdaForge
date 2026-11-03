@@ -162,6 +162,24 @@ percent of the high-water mark, so it closes the position before the
 strategy's own rules can. Undeclared and unrecognised strategies keep the
 ratchet, so all seven built-ins are unaffected.
 
+### Strategy packs
+
+`STRATEGIES` in `src/strategies/__init__.py` is the built-ins merged with
+every installed strategy pack (`src/strategies/packs.py`). A pack is a
+package registered under the `lambdaforge.strategies` entry-point group,
+pointing at a `STRATEGIES` dict shaped like the built-in one: name to
+`Strategy` subclass, built with no arguments. The merge refuses a name
+that's already taken, by a built-in or by another pack, because a lot is
+exited by the strategy that opened it, by name. Everything that reads the
+registry sees pack strategies exactly like built-ins: Telegram's list
+(through `src/ops.py`), the scheduler and `tools/backtest.py`.
+
+The Dockerfile installs every pack in the gitignored `packs/` folder,
+constrained to the library versions already installed so a pack can't move
+the engine's, then imports the registry. A broken pack or a reused name
+fails the image build, not a run. `python -m tools.new_pack <name>` writes a
+new pack's packaging and test.
+
 ---
 
 ## Risk Management

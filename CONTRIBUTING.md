@@ -39,6 +39,8 @@ python -m pytest tests/ -v
 
 This is the most common contribution. Here's exactly what to do:
 
+Keeping a strategy to yourself? Make it a [strategy pack](README.md#strategy-packs) in a repo of your own instead; the steps below add one to this repo.
+
 ### 1. Create the strategy file
 
 Create `src/strategies/your_strategy.py`. Your strategy must implement the `Strategy` ABC:
