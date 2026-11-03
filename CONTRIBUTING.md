@@ -102,7 +102,7 @@ Add your strategy to `src/strategies/__init__.py`:
 ```python
 from src.strategies.your_strategy import YourStrategy
 
-STRATEGIES = {
+BUILTIN_STRATEGIES = {
     "macd": MACDStrategy,
     "bollinger": BollingerSqueezeStrategy,
     # ... existing strategies ...
