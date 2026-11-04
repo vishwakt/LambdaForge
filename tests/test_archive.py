@@ -6,7 +6,7 @@ import io
 import json
 import tracemalloc
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from botocore.exceptions import ClientError
@@ -146,7 +146,7 @@ class TestExportTables:
         assert "exported_at" in payload
 
     def test_streamed_json_matches_the_all_at_once_export(self, store, monkeypatch):
-        moment = datetime(2026, 10, 30, 19, 55, tzinfo=timezone.utc)
+        moment = datetime(2026, 10, 30, 19, 55, tzinfo=UTC)
 
         class _Frozen(datetime):
             @classmethod

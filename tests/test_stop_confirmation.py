@@ -8,7 +8,7 @@ far below where the stock is trading. Stops now use the last trade price
 two consecutive runs agree, unless the price has gapped well through.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,7 +41,7 @@ def log_buy(engine, symbol="AXTI", stop_loss=71.13, fill_price=73.07):
 def wire(engine, monkeypatch, trade_price, bid=None, ask=None, trade_age_min=0):
     """Feed the monitor a last trade (and optionally a quote); record exits."""
     exits = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     monkeypatch.setattr(
         scheduler_mod,
         "get_latest_trade",
