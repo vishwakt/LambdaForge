@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   early warning. pandas moves from 2.3 to 3.1 and numpy from 2.0 to 2.5; all
   eight strategies gave bit-identical signals under both ([#99]).
 
+### Fixed
+
+- **Deploys build again on GitHub's new runner** — `ubuntu-latest` moved to
+  Ubuntu 26.04 with Docker 29, whose containerd image store breaks
+  `sam build` for the arm64 image ("failed to export image: NotFound:
+  content digest ... not found"), so #99's deploy failed before deploying
+  anything. The deploy switches the runner back to Docker's classic image
+  store first ([#102]).
+
 ---
 
 ## [0.2.0] — 2026-11-02
@@ -340,6 +349,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#95]: https://github.com/vishwakt/LambdaForge/pull/95
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
+[#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
