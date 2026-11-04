@@ -1,0 +1,44 @@
+%% System architecture. Render with: python docs/diagrams/render.py system
+flowchart LR
+    sched@{ icon: "aws:eventbridge", label: "EventBridge Scheduler<br/>New York time", pos: "b", h: 56 }
+    telegram(["Telegram"])
+
+    subgraph stack1["Stack 1"]
+        ops@{ icon: "aws:lambda", label: "TelegramOps<br/>Function URL", pos: "b", h: 56 }
+    end
+
+    subgraph bot["Each bot in bots.json"]
+        monitor@{ icon: "aws:lambda", label: "MonitorStops<br/>every minute: all trading", pos: "b", h: 56 }
+        reports@{ icon: "aws:lambda", label: "DailyScan, digests,<br/>EodSnapshot: reports only", pos: "b", h: 56 }
+        kill@{ icon: "aws:lambda", label: "KillSwitch", pos: "b", h: 56 }
+    end
+
+    subgraph data["The bot's data"]
+        table@{ icon: "aws:dynamodb", label: "DynamoDB table<br/>trades, lots, snapshots,<br/>rejections", pos: "b", h: 56 }
+        bucket@{ icon: "aws:s3", label: "S3 bucket<br/>weekly audit archive", pos: "b", h: 56 }
+        glacier@{ icon: "aws:glacier", label: "Glacier Deep Archive<br/>7 years", pos: "b", h: 56 }
+    end
+
+    ssm@{ icon: "aws:systems-manager", label: "SSM Parameter Store<br/>settings, keys, strategies,<br/>kill switch", pos: "b", h: 56 }
+    alpaca(["Alpaca API<br/>orders, positions, prices"])
+
+    subgraph mail["Email"]
+        ses@{ icon: "aws:ses", label: "SES<br/>digests and alerts", pos: "b", h: 56 }
+        sns@{ icon: "aws:sns", label: "SNS<br/>stop alerts, and the<br/>fallback for SES", pos: "b", h: 56 }
+    end
+
+    sched --> monitor
+    sched --> reports
+    telegram <--> ops
+    ops -->|"set strategies,<br/>kill switch"| ssm
+    ops -->|"kill"| kill
+    ops -->|"status, positions"| alpaca
+    ssm -->|"read every run"| monitor
+    monitor <-->|"orders, prices"| alpaca
+    kill -->|"liquidate"| alpaca
+    monitor <--> table
+    reports <--> table
+    reports -->|"weekly"| bucket
+    bucket -->|"lifecycle rule"| glacier
+    monitor --> mail
+    reports --> mail
