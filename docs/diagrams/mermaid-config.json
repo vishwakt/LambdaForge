@@ -1,0 +1,5 @@
+{
+  "theme": "neutral",
+  "htmlLabels": false,
+  "flowchart": { "htmlLabels": false, "wrappingWidth": 400, "useMaxWidth": false }
+}
