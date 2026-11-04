@@ -21,7 +21,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import BinaryIO
 
 from botocore.exceptions import ClientError
@@ -57,7 +57,7 @@ def export_tables(tables: dict[str, Iterable[dict]], out: BinaryIO) -> None:
     with io.TextIOWrapper(
         gzip.GzipFile(fileobj=out, mode="wb"), encoding="utf-8"
     ) as text:
-        exported_at = json.dumps(datetime.now(timezone.utc).isoformat())
+        exported_at = json.dumps(datetime.now(UTC).isoformat())
         text.write(f'{{"exported_at": {exported_at}, "tables": {{')
         for i, name in enumerate(ARCHIVE_TABLES):
             text.write(f"{', ' if i else ''}{json.dumps(name)}: [")
