@@ -95,6 +95,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # ubuntu-latest moved to 26.04 (Docker 29) in Nov 2026, which uses the
+      # containerd image store. On it, sam build's classic builder can't
+      # build our arm64 image: "failed to export image: NotFound: content
+      # digest ... not found" (the base image's amd64 manifest). Switch back
+      # to the classic store before anything else touches Docker.
+      - name: Use Docker's classic image store
+        run: |
+          f=/etc/docker/daemon.json
+          sudo test -s "$f" || echo '{}' | sudo tee "$f" >/dev/null
+          sudo jq '.features["containerd-snapshotter"] = false' "$f" | sudo tee "$f.new" >/dev/null
+          sudo mv "$f.new" "$f"
+          sudo systemctl restart docker
+          docker info -f 'Docker {{.ServerVersion}}, storage driver {{.Driver}}'
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
