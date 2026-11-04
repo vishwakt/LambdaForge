@@ -1,0 +1,51 @@
+name: TEMP build check (remove before merge)
+
+# Throwaway: reproduces the Nov 4 SAM Build failure and tests the fixes.
+# Needs no AWS credentials: sam build only pulls the public base image.
+
+on:
+  push:
+    branches: [fix/deploy-docker-29]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.store }} store / python ${{ matrix.base }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, store: default, base: "3.14" }
+          - { os: ubuntu-latest, store: default, base: "3.9" }
+          - { os: ubuntu-latest, store: classic, base: "3.14" }
+          - { os: ubuntu-24.04, store: default, base: "3.14" }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Use Docker's classic image store
+        if: matrix.store == 'classic'
+        run: |
+          f=/etc/docker/daemon.json
+          sudo test -s "$f" || echo '{}' | sudo tee "$f" >/dev/null
+          sudo jq '.features["containerd-snapshotter"] = false' "$f" | sudo tee "$f.new" >/dev/null
+          sudo mv "$f.new" "$f"
+          sudo systemctl restart docker
+
+      - name: Base image
+        if: matrix.base != '3.14'
+        run: sed -i 's#lambda/python:3.14#lambda/python:${{ matrix.base }}#' Dockerfile && head -3 Dockerfile
+
+      - name: Docker
+        run: |
+          grep -E '^(PRETTY_NAME)' /etc/os-release
+          docker version -f 'Docker {{.Server.Version}}'
+          docker info -f 'Driver {{.Driver}} {{json .DriverStatus}}'
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: aws-actions/setup-sam@v2
+
+      - name: SAM Build
+        run: sam build
