@@ -37,7 +37,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -58,7 +58,7 @@ jobs:
     outputs:
       bots: ${{ steps.pick.outputs.bots }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - id: pick
         env:
@@ -93,7 +93,7 @@ jobs:
       AWS_REGION: us-east-1
       ECR_REPO: stock-trading-bot-images
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ubuntu-latest moved to 26.04 (Docker 29) in Nov 2026, which uses the
       # containerd image store. On it, sam build's classic builder can't

@@ -19,7 +19,7 @@ jobs:
     name: Lint & format (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -45,7 +45,7 @@ jobs:
         # 3.15 catches forward-compat issues before the next runtime bump.
         python-version: ["3.14", "3.15"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -82,7 +82,7 @@ jobs:
     name: Validate SAM template
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -105,7 +105,7 @@ jobs:
       # gitleaks-action lists PR commits to scope the scan; needs pull-requests read.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Fetch full history so gitleaks can scan every commit on a PR.
           fetch-depth: 0
