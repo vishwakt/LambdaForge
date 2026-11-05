@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.9. The image now builds on `:3.14` and CI tests 3.14, with 3.15 as an
   early warning. pandas moves from 2.3 to 3.1 and numpy from 2.0 to 2.5; all
   eight strategies gave bit-identical signals under both ([#99]).
+- **One image for every bot, in one ECR repository** — each bot's deploy
+  built its own copy of the same image into its own repository, and each
+  repository kept 10–12 images. The image is now built once per push into
+  `stock-trading-bot-images`, and every bot deploys that build. After each
+  deploy the image a bot runs is tagged with the bot's name, and the
+  lifecycle policy never expires a tagged image, so it keeps the 3 newest
+  plus whatever a bot still runs. ECR drops from about $0.82 to about
+  $0.07 a month for two bots. A fork's per-bot repositories go unused and
+  can be deleted once its bots run from the shared one ([#100]).
 
 ### Fixed
 
@@ -357,6 +366,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
+[#100]: https://github.com/vishwakt/LambdaForge/pull/100
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
