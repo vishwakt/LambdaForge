@@ -340,13 +340,19 @@ scripts/migration_step.sh stock-trading-bot-2 init
 ```
 
 CI/CD via GitHub Actions: every bot in `bots.json` deploys on each push to `main`.
+The image is built once and every bot deploys that same image. After a bot's
+deploy, the image its functions run is tagged with the bot's name, and the
+repository's lifecycle policy never expires a tagged image: Lambda fails every
+call to a function whose image is deleted.
 
 ```mermaid
 flowchart LR
-    push["Push to main<br/>docs-only pushes skipped"] --> wf["Build & Deploy<br/>one job per bot in bots.json"]
-    wf -->|"build arm64 image"| ecr[("ECR repository<br/>one per bot")]
+    push["Push to main<br/>docs-only pushes skipped"] --> build["Build job<br/>once per push"]
+    build -->|"build arm64 image"| ecr[("ECR repository<br/>stock-trading-bot-images,<br/>shared by every bot")]
+    build -->|"packaged template"| wf["Deploy jobs<br/>one per bot in bots.json"]
     wf -->|"sam deploy"| stack["The bot's CloudFormation stack"]
-    ecr -->|"container image"| fns["The bot's Lambda functions"]
+    ecr -->|"same image for every bot"| fns["The bot's Lambda functions"]
     stack --> fns
     wf -.->|"first deploy only"| init["init: start the empty table"]
+    wf -->|"tag the running image<br/>with the bot's name"| ecr
 ```

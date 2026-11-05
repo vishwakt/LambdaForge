@@ -2,12 +2,12 @@
   "rules": [
     {
       "rulePriority": 1,
-      "description": "Expire untagged images after 3 days. Each deploy pushes :latest, which orphans the previous image; nothing references it afterwards. Matches the 3-day rollback window used for trades.db versions in S3.",
+      "description": "Never expire an image a bot runs. After each deploy, deploy-stack.yml tags the image a bot's functions run with the bot's name. Lambda fails every call to a function whose image is deleted.",
       "selection": {
-        "tagStatus": "untagged",
-        "countType": "sinceImagePushed",
-        "countUnit": "days",
-        "countNumber": 3
+        "tagStatus": "tagged",
+        "tagPrefixList": ["stock-bot"],
+        "countType": "imageCountMoreThan",
+        "countNumber": 1000
       },
       "action": {
         "type": "expire"
@@ -15,11 +15,11 @@
     },
     {
       "rulePriority": 2,
-      "description": "Keep the 10 most recent images overall. A deploy adds two (the :latest push and the SAM-tagged push), so this retains roughly the last five deploys for rollback. Older images are rebuildable from git.",
+      "description": "Keep the 3 newest images. Each push to main adds one, shared by every bot; older ones no bot runs are rebuildable from git.",
       "selection": {
         "tagStatus": "any",
         "countType": "imageCountMoreThan",
-        "countNumber": 10
+        "countNumber": 3
       },
       "action": {
         "type": "expire"

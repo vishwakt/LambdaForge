@@ -64,7 +64,7 @@ LambdaForge is a **production-grade, fully serverless algorithmic stock trading 
 
 ---
 
-## 💸 Cost — About $0.15/month per stack
+## 💸 Cost — About $0.10/month for two bots
 
 One of LambdaForge's biggest advantages: **it costs almost nothing to run**. Compute is free at this volume; what you pay for is storage.
 
@@ -74,14 +74,15 @@ One of LambdaForge's biggest advantages: **it costs almost nothing to run**. Com
 | **EventBridge** | 5 scheduled rules: 4 New York-time crons + 1 rate rule | Free at this volume | **$0** |
 | **SSM Parameter Store + KMS** | 13 Standard parameters; the Alpaca keys are SecureStrings on the AWS-managed key, decrypted once per container and then cached | Standard parameters are free; a few thousand decrypts a month against KMS's 20K free requests | **$0** |
 | **SNS + SES** | Alerts plus hourly, daily and weekly digest emails, a few hundred a month | Free at this volume | **$0** |
-| **DynamoDB** | One on-demand table with point-in-time recovery. Writes: a few hundred a trading day (each order, fill and stop move, and each rejection once a day). Reads: a few small queries per buy signal per minute | Rejections are written once a day, not once a minute; the table is a few MB, inside the 25 GB of free storage | **~$0.06** |
-| **S3** | Weekly audit exports, straight to Glacier Deep Archive for 7 years | Nothing is uploaded per run any more | **~$0.01** |
-| **ECR** | The arm64 container image | Lifecycle policy keeps the 10 newest images and expires untagged ones after 3 days | **~$0.08** |
-| | | **Monthly total per bot →** | **~$0.15** |
+| **DynamoDB** | One on-demand table with point-in-time recovery. Writes: a few hundred a trading day (each order, fill and stop move, and each rejection once a day). Reads: a few small queries per buy signal per minute | Rejections are written once a day, not once a minute; the table is a few MB, inside the 25 GB of free storage | **$0.01–0.06** |
+| **S3** | Weekly audit exports, straight to Glacier Deep Archive for 7 years | Nothing is uploaded per run any more | **<$0.01** |
+| **ECR** | One arm64 container image, **shared by every bot** | Built once per push into one repository; the lifecycle policy keeps the 3 newest images and any image a bot runs | **~$0.07 in all** |
+| | | **Each bot →** | **$0.01–0.07** |
+| | | **Plus ECR, once for all bots →** | **~$0.07** |
 
-> Running **two bots plus stack 1**, which only hosts the Telegram function (its image is most of its ~$0.09), costs about $0.40/month. Still cheaper than a cup of coffee.
+> Running **two bots plus stack 1**, which only hosts the Telegram function, costs about $0.10/month: the shared image is most of it, and each bot adds a cent or two. Still cheaper than a cup of coffee.
 
-> **How these numbers were made.** S3 and ECR are projections from the September 2026 bill with both lifecycle rules in place, not a closed invoice; S3 then held a `trades.db` re-uploaded every minute, about $0.07 of the old total, which is gone. DynamoDB is estimated from the code's pattern and Bot 2's October activity, not yet from a bill: writes are a few hundred a trading day (about 200 trade and stop writes measured on one shadow day, before index writes, plus about 66 rejection rows), well under $0.02 a month, and reads come mostly from the risk checks on each buy signal (about 31 a minute on Bot 2 in October), roughly 0.4 million read units a month. A bot whose stack is full skips the entry scan and reads far less. Recording every rejection, as before, added about 15,000 writes a day, another ~$0.20/month. S3 and ECR are priced as paid here because the 12-month free tier that used to cover them was replaced for new AWS accounts in July 2025. The Lambda free tier is per account, so it's shared with anything else you run there.
+> **How these numbers were made.** ECR and DynamoDB come from the October 2026 bill. Until every bot shared one image, each bot built its own copy into its own repository, which kept 10–12 images of about 240 MB: about $0.27 a month per bot, for identical images. Three images in one repository are about 0.73 GB, or $0.07. DynamoDB billed about 15,000 writes and 42,000 reads a month for two bots once rejections were written once a day, about $0.015 for both. Both bots held their full 12 positions, and a full bot skips the entry scan; a bot with open slots reads mostly in the risk checks on each buy signal (about 31 a minute on Bot 2 in October), roughly 0.4 million read units, or $0.05, a month. Recording every rejection, as before, added about 15,000 writes a day, another ~$0.20/month. S3 now holds only the weekly archive and a few leftover files. S3 and ECR are priced as paid here because the 12-month free tier that used to cover them was replaced for new AWS accounts in July 2025. The Lambda free tier is per account, so it's shared with anything else you run there.
 
 Compare this to a VPS or dedicated server which would run $5–$50/month for equivalent uptime.
 
@@ -173,9 +174,10 @@ If you passed `NotificationEmail` at deploy time, SAM already created the subscr
 ### Add another bot
 
 Every bot is one line in [`bots.json`](bots.json), and its name gives every
-other name: `stock-bot-4` has the SSM prefix `/stock-bot-4/`, the stack and
-ECR repo `stock-trading-bot-4`, the bucket `stock-trader-db-4-<account>` and
-the table `stock-trader-4`. Give each bot its own Alpaca paper account:
+other name: `stock-bot-4` has the SSM prefix `/stock-bot-4/`, the stack
+`stock-trading-bot-4`, the bucket `stock-trader-db-4-<account>` and the table
+`stock-trader-4`. Every bot runs the same image, from the one ECR repository
+`stock-trading-bot-images`. Give each bot its own Alpaca paper account:
 positions belong to an account, so two bots sharing keys would trade, and
 kill, each other's positions.
 
