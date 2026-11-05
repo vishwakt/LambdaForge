@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(nothing yet — changes after v0.2.0 land here)*
+- **Strategy packs** — a strategy can live outside this repo, in a package
+  of your own, and still run like a built-in: in Telegram's list, the
+  scheduler and the backtester. The Dockerfile installs every pack in the
+  gitignored `packs/` folder, the engine merges their strategies with the
+  built-ins, and the image build fails on a reused name.
+  `python -m tools.new_pack <name>` writes a pack's packaging and test
+  ([#98]).
 
 ### Changed
 
@@ -356,6 +362,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#88]: https://github.com/vishwakt/LambdaForge/pull/88
 [#94]: https://github.com/vishwakt/LambdaForge/pull/94
 [#95]: https://github.com/vishwakt/LambdaForge/pull/95
+[#98]: https://github.com/vishwakt/LambdaForge/pull/98
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102

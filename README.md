@@ -242,6 +242,21 @@ All strategies implement a common interface — they receive historical OHLCV ba
 
 Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md). A strategy is one class with one method; the starter template is about 50 lines, and the built-in strategies run 140 to 220 lines, most of it spelling out the reason behind each signal.
 
+### Strategy packs
+
+A strategy you'd rather not publish can live in a repo of your own as a **pack**: an installed package whose `lambdaforge.strategies` entry point names a `STRATEGIES` dict shaped like the built-in one. The engine merges every pack's strategies with the built-ins, so Telegram, the scheduler and the backtester treat them like any other strategy, and you switch them per bot the same way.
+
+```bash
+python -m tools.new_pack my_strategies   # writes packs/my_strategies/: pyproject, STRATEGIES, a test
+```
+
+- **Packs go in `packs/`.** The Dockerfile installs every folder there, and `packs/` is gitignored, so a pack's code stays in its own repo. With no packs, the image installs nothing new.
+- **Names are unique.** A pack can't reuse a built-in's name or another pack's: the image build fails instead. A lot is exited by the strategy that opened it, by name, so a pack can never take over another strategy's lots.
+- **A pack can't change the engine's libraries.** It can add its own, but the build pins every version already installed, so the built-ins give the same signals.
+- **Test a pack** after installing it, with the engine on the path: `pip install .`, then `PYTHONPATH=path/to/LambdaForge python -m pytest`. The scaffold's test checks that each strategy builds with no arguments, carries its own name and signals on daily bars.
+
+`sam build` installs whatever is in `packs/`. The GitHub deploy workflows don't check a pack out yet.
+
 ---
 
 ## ⚙️ Configuration

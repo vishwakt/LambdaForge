@@ -5,12 +5,13 @@ from src.strategies.bollinger import BollingerSqueezeStrategy
 from src.strategies.ema_crossover import EMACrossoverStrategy
 from src.strategies.macd import MACDStrategy
 from src.strategies.mean_reversion import MeanReversionStrategy
+from src.strategies.packs import installed_packs, merge_strategies
 from src.strategies.pullback_uptrend import PullbackUptrendStrategy
 from src.strategies.relative_strength import RelativeStrengthStrategy
 from src.strategies.rsi_confluence import RSIConfluenceStrategy
 from src.strategies.rsi_macd_confluence import RSIMACDConfluenceStrategy
 
-STRATEGIES = {
+BUILTIN_STRATEGIES = {
     "macd": MACDStrategy,
     "bollinger": BollingerSqueezeStrategy,
     "zscore": MeanReversionStrategy,
@@ -20,6 +21,9 @@ STRATEGIES = {
     "relative_strength": RelativeStrengthStrategy,
     "pullback_uptrend": PullbackUptrendStrategy,
 }
+
+# Every strategy this image can run: the built-ins plus any installed packs'.
+STRATEGIES = merge_strategies(BUILTIN_STRATEGIES, installed_packs())
 
 __all__ = [
     "Strategy",
@@ -33,5 +37,6 @@ __all__ = [
     "RSIMACDConfluenceStrategy",
     "RelativeStrengthStrategy",
     "PullbackUptrendStrategy",
+    "BUILTIN_STRATEGIES",
     "STRATEGIES",
 ]
