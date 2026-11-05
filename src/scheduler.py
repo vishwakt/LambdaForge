@@ -236,6 +236,16 @@ class TradingEngine:
             )
             return
 
+        # Past the daily loss limit every BUY is refused, whatever the signal,
+        # so skip the bars too. On 2026-11-05 Bot 3 kept fetching them every
+        # minute after the limit tripped, until runs overlapped and timed out.
+        if self.risk_manager.daily_loss_exceeded(account_info):
+            logger.info(
+                "Entry scan skipped: daily loss limit of %.1f%% exceeded",
+                self.config.risk.daily_loss_limit_pct * 100,
+            )
+            return
+
         symbols = self.config.scheduler.symbols
         # Ensure SPY is fetched for relative_strength strategy
         fetch_symbols = list(symbols)
