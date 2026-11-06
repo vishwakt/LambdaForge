@@ -244,6 +244,23 @@ class TradingEngine:
                 "Entry scan skipped: daily loss limit of %.1f%% exceeded",
                 self.config.risk.daily_loss_limit_pct * 100,
             )
+            # With no signal checked nothing is refused, so the trip would
+            # leave no row and send no alert. Record it once a day instead:
+            # log_risk_rejection returns False on a repeat.
+            reason = (
+                "Daily loss limit exceeded: entries paused while down more than "
+                f"{self.config.risk.daily_loss_limit_pct:.1%} today"
+            )
+            if self.trade_log.log_risk_rejection(
+                symbol="WATCHLIST",
+                strategy="entry_scan",
+                action=Action.BUY.value,
+                confidence=None,
+                rejection_reason=reason,
+            ):
+                self.notifier.notify_risk_rejection(
+                    "WATCHLIST", "entry_scan", Action.BUY.value, [reason]
+                )
             return
 
         symbols = self.config.scheduler.symbols

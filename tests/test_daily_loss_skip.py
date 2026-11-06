@@ -5,6 +5,10 @@ monitor run after that still fetched daily bars for the whole watchlist, about
 26 s and later over 70 s, only for the risk manager to refuse every BUY. Runs
 overlapped and three hit the 120 s timeout. The limit doesn't depend on the
 signal, so the scan now asks the risk manager once and skips the bars.
+
+Skipping the scan means no signal is ever refused, so on its own the trip
+would leave no rejection row and send no alert. The first skipped run each
+day records one row and sends one alert instead.
 """
 
 import logging
@@ -14,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src import dynamo_store
 from src import scheduler as scheduler_mod
 from src.scheduler import TradingEngine
 from src.strategies.base import Action, Signal
@@ -66,6 +71,14 @@ def scan(engine_config, monkeypatch):
             placed.append(symbol) or {"order_id": f"o-{len(placed)}"}
         ),
     )
+    alerts = []
+    monkeypatch.setattr(
+        engine.notifier,
+        "notify_risk_rejection",
+        lambda symbol, strategy, action, reasons: alerts.append(
+            (symbol, strategy, action, reasons)
+        ),
+    )
 
     def _run(down_pct):
         equity = PREV_EQUITY * (1 - down_pct)
@@ -77,7 +90,28 @@ def scan(engine_config, monkeypatch):
         engine._scan_for_entries(None, None)
         return fetches, placed
 
+    _run.engine = engine
+    _run.alerts = alerts
     return _run
+
+
+def rejection_rows(engine):
+    items = engine.trade_log.table.scan()["Items"]
+    return [i for i in items if i["PK"].startswith("REJECT#")]
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Move the store's clock, which dates each rejection row."""
+    now = [datetime(2026, 11, 5, 15, 0)]
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now[0].replace(tzinfo=tz)
+
+    monkeypatch.setattr(dynamo_store, "datetime", _Clock)
+    return now
 
 
 class TestDailyLossLimit:
@@ -95,3 +129,33 @@ class TestDailyLossLimit:
         fetches, placed = scan(down_pct=0.01)
         assert len(fetches) == 1
         assert placed == ["AAA", "BBB", "CCC"]
+        assert rejection_rows(scan.engine) == [] and scan.alerts == []
+
+
+class TestTheTripIsRecorded:
+    def test_the_first_skip_records_once_and_alerts_once(self, scan):
+        scan(down_pct=0.03)
+        rows = rejection_rows(scan.engine)
+        assert [(r["symbol"], r["strategy"], r["action"]) for r in rows] == [
+            ("WATCHLIST", "entry_scan", "BUY")
+        ]
+        reason = rows[0]["rejection_reason"]
+        assert reason.startswith("Daily loss limit exceeded: ")
+        assert scan.alerts == [("WATCHLIST", "entry_scan", "BUY", [reason])]
+
+    def test_a_second_skip_the_same_day_does_neither(self, scan, caplog):
+        scan(down_pct=0.03)
+        with caplog.at_level(logging.INFO, logger="stock-trader"):
+            scan(down_pct=0.03)
+        assert len(rejection_rows(scan.engine)) == 1 and len(scan.alerts) == 1
+        assert any("Entry scan skipped" in r.message for r in caplog.records)
+
+    def test_a_new_day_records_and_alerts_again(self, scan, clock):
+        scan(down_pct=0.03)
+        clock[0] = datetime(2026, 11, 6, 14, 31)
+        scan(down_pct=0.03)
+        assert sorted(r["PK"] for r in rejection_rows(scan.engine)) == [
+            "REJECT#2026-11-05",
+            "REJECT#2026-11-06",
+        ]
+        assert len(scan.alerts) == 2
