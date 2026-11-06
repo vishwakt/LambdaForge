@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-ins, and the image build fails on a reused name.
   `python -m tools.new_pack <name>` writes a pack's packaging and test
   ([#98]).
+- **Retiring a bot is one command** — `python scripts/retire_bot.py
+  stock-bot-4` is the reverse of `new_bot.py`. Its first run removes the bot
+  from `bots.json`; after that merges, a second run deletes the bot's stack,
+  bucket, table and its backups, settings and keys, and its tag on the shared
+  image. It keeps the log groups, with 180-day retention. It refuses while
+  the market is open or the bot's Alpaca account holds positions or open
+  orders, never trades, never deletes the shared image repository, and asks
+  you to type the bot's name first ([#104]).
 
 ### Changed
 
@@ -363,6 +371,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#94]: https://github.com/vishwakt/LambdaForge/pull/94
 [#95]: https://github.com/vishwakt/LambdaForge/pull/95
 [#98]: https://github.com/vishwakt/LambdaForge/pull/98
+[#104]: https://github.com/vishwakt/LambdaForge/pull/104
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
