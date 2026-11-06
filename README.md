@@ -193,6 +193,24 @@ the subscription email SNS sends, so its alerts reach you. One or two
 characters after `stock-bot-` match the IAM policies' name patterns, so no IAM
 or template change is needed.
 
+To retire a bot for good, run the reverse:
+
+```bash
+python scripts/retire_bot.py stock-bot-4
+```
+
+The first run removes the bot from `bots.json`. Commit and merge that, so no
+deploy recreates it, then run the script again after the close. It refuses
+while the bot's Alpaca account holds positions or open orders, so close them
+first; the script never trades. It lists what it will delete, and once you
+type the bot's name it deletes the stack, the bucket (emptied first), the
+table and its backups, the bot's settings and keys, and the bot's tag on the
+shared image. It keeps the log groups, with 180-day retention. Deleting data
+needs more than the deploy credentials allow: run it with a profile that
+also has `s3:DeleteObjectVersion`, `dynamodb:DeleteTable`,
+`dynamodb:ListBackups`, `dynamodb:DeleteBackup` and `ecr:BatchDeleteImage`.
+Stack 1 hosts the Telegram function for every bot, so it can't be retired.
+
 To start a bot's next paper experiment from zero, close its positions, then
 run **Actions → DynamoDB migration** with `mode=reset`, the bot, and its stack
 name as `confirm`. The table is backed up first, so nothing is lost.
