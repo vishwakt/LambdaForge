@@ -42,8 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the risk manager then refused every BUY for the same reason. On
   2026-11-05 that fetch slowed past 70 s, runs overlapped and three timed
   out. The scan now asks the risk manager's own daily-loss check once, before
-  the bars, and skips with one log line. Stops and exits run first, as
-  before ([#103]).
+  the bars, and skips with one log line. The first skipped run each day
+  still records one rejection row (`WATCHLIST [entry_scan]`) and sends one
+  alert, so the trip still shows in the alerts and digests. Stops and exits
+  run first, as before ([#103]).
 
 ---
 
