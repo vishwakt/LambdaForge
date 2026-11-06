@@ -189,7 +189,7 @@ Dataclass defaults  (src/config.py)
 | `max_concentration` | String | `0.15` | Max portfolio fraction per symbol |
 | `max_daily_loss` | String | `0.02` | Daily loss limit as fraction |
 | `min_confidence` | String | `0.5` | Minimum signal confidence to trade |
-| `monitor_interval` | String | `1` | MonitorStops interval in minutes |
+| `monitor_interval` | String | `1` | Local runner only: MonitorStops interval in minutes (see below) |
 | `notify_frequency` | String | `hourly` | `realtime`, `hourly`, or `daily` |
 | `strategies` | String | (config.json list) | Comma-separated strategy names to run |
 | `kill-switch` | String | `alive` | `alive` or `kill` |
@@ -201,6 +201,13 @@ next scheduled run — within a minute for `MonitorStops`. No redeploy, no
 restart. `SecureString` credentials are the exception: they are decrypted once
 per container and cached, which is what keeps KMS usage (and cost) flat. A
 credential rotation therefore lands on the next cold start.
+
+The deployed `MonitorStops` interval is not an SSM parameter. `MonitorStops`
+runs on an EventBridge rule whose rate is the `MonitorIntervalMinutes` stack
+parameter in `template.yaml` (default 1), so changing it takes a deploy. The
+CI deploy doesn't override it, so every bot runs every minute. The SSM
+`monitor_interval` parameter only sets the interval of the local runner
+(`python -m src.main run-daily`).
 
 Parameters can be edited in the AWS Console, via `aws ssm put-parameter`, or —
 for `strategies` and `kill-switch` — from the Telegram bot.

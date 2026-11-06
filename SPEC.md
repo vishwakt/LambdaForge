@@ -93,7 +93,7 @@ and reporting.
 - Rate limit detection: 429 retry with 2s backoff (3 attempts), email alerts on rate limit hits
 - Consolidated trade emails via BatchingNotifier: 3 separate emails per cycle (buys with strategy scores, sells with P&L, rejections with reasons)
 - Kill switch: SSM-driven emergency halt + position liquidation via dedicated Lambda (supports kill/alive/status)
-- Configurable monitor interval: 2-minute default (was 15), SSM-driven, no redeploy
+- Configurable monitor interval: 2-minute default (was 15), set by the `MonitorIntervalMinutes` stack parameter at deploy time (the SSM `monitor_interval` parameter only sets the local runner's)
 - Opportunistic scanning: monitor cycle scans full 218-symbol watchlist for buy/sell signals every 2 min
 - SES HTML email formatting: monospace `<pre>` rendering for daily summary and weekly digest
 - Daily scan moved from 09:45 ET to 09:30 ET (market open)

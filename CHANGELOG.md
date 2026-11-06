@@ -60,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still records one rejection row (`WATCHLIST [entry_scan]`) and sends one
   alert, so the trip still shows in the alerts and digests. Stops and exits
   run first, as before ([#103]).
+- **The docs no longer say SSM sets the deployed monitor interval** — README
+  and ARCHITECTURE listed the `monitor_interval` SSM parameter as
+  MonitorStops' interval, and ARCHITECTURE said every String parameter takes
+  effect on the next run. Only the local runner (`python -m src.main
+  run-daily`) reads it. In AWS, MonitorStops runs on an EventBridge rule whose
+  rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
+  deploy. The docs, SPEC.md and the code comments now say so; nothing runs
+  differently ([#107]).
 
 ---
 
@@ -386,6 +394,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
 [#103]: https://github.com/vishwakt/LambdaForge/pull/103
+[#107]: https://github.com/vishwakt/LambdaForge/pull/107
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
