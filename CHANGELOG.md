@@ -51,6 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content digest ... not found"), so #99's deploy failed before deploying
   anything. The deploy switches the runner back to Docker's classic image
   store first ([#102]).
+- **No entry scan past the daily loss limit** — once the limit tripped,
+  MonitorStops still fetched daily bars for the whole watchlist every minute,
+  and the risk manager then refused every BUY for the same reason. On
+  2026-11-05 that fetch slowed past 70 s, runs overlapped and three timed
+  out. The scan now asks the risk manager's own daily-loss check once, before
+  the bars, and skips with one log line. The first skipped run each day
+  still records one rejection row (`WATCHLIST [entry_scan]`) and sends one
+  alert, so the trip still shows in the alerts and digests. Stops and exits
+  run first, as before ([#103]).
 
 ---
 
@@ -376,6 +385,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
+[#103]: https://github.com/vishwakt/LambdaForge/pull/103
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
