@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run-daily`) reads it. In AWS, MonitorStops runs on an EventBridge rule whose
   rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
   deploy. The docs, SPEC.md and the code comments now say so; nothing runs
-  differently ([#106]).
+  differently ([#107]).
 
 ---
 
@@ -375,7 +375,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
-[#106]: https://github.com/vishwakt/LambdaForge/pull/106
+[#107]: https://github.com/vishwakt/LambdaForge/pull/107
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
