@@ -363,14 +363,6 @@ deploy, the image its functions run is tagged with the bot's name, and the
 repository's lifecycle policy never expires a tagged image: Lambda fails every
 call to a function whose image is deleted.
 
-```mermaid
-flowchart LR
-    push["Push to main<br/>docs-only pushes skipped"] --> build["Build job<br/>once per push"]
-    build -->|"build arm64 image"| ecr[("ECR repository<br/>stock-trading-bot-images,<br/>shared by every bot")]
-    build -->|"packaged template"| wf["Deploy jobs<br/>one per bot in bots.json"]
-    wf -->|"sam deploy"| stack["The bot's CloudFormation stack"]
-    ecr -->|"same image for every bot"| fns["The bot's Lambda functions"]
-    stack --> fns
-    wf -.->|"first deploy only"| init["init: start the empty table"]
-    wf -->|"tag the running image<br/>with the bot's name"| ecr
-```
+![Deployment pipeline: on each push to main, one build job pushes the arm64 image to the shared ECR repository, then one deploy job per bot runs sam deploy on the bot's stack, whose functions all run that same image, and tags the image with the bot's name](docs/diagrams/deploy.svg)
+
+The source is [`docs/diagrams/deploy.mmd`](docs/diagrams/deploy.mmd); see [docs/diagrams](docs/diagrams/README.md) to change it.
