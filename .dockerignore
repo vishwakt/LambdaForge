@@ -1,5 +1,6 @@
 .venv/
 .git/
+packs/*/.git
 .github/
 __pycache__/
 *.pyc

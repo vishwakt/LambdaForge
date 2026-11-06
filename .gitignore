@@ -11,6 +11,10 @@ build/
 .venv/
 venv/
 
+# Strategy packs: each is its own repo (see packs/README.md)
+packs/*
+!packs/README.md
+
 # Database
 *.db
 *.sqlite
