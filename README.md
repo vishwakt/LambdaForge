@@ -277,7 +277,7 @@ aws ssm put-parameter --name "/stock-bot-2/trailing_stop_pct" --value "0.03" --t
 | `max_daily_loss` | `0.02` | Daily loss limit — stops trading if hit |
 | `min_confidence` | `0.5` | Minimum signal confidence to trade |
 | `allow_pyramiding` | `false` | Buy more of a symbol already held, up to `max_concentration` |
-| `monitor_interval` | `1` | MonitorStops interval in minutes |
+| `monitor_interval` | `1` | MonitorStops interval in minutes for the local runner (`python -m src.main run-daily`) only. Deployed bots use the `MonitorIntervalMinutes` stack parameter, which takes a deploy to change |
 | `notify_frequency` | `hourly` | `realtime`, `hourly`, or `daily` |
 | `strategies` | `config.json` list | Comma-separated strategies to run; also set from Telegram |
 | `kill-switch` | `alive` | Set to `kill` to halt all trading immediately |

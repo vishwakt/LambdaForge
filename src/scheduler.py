@@ -515,7 +515,8 @@ class TradingEngine:
     def monitor_stops(self):
         """Full monitoring cycle: stop-losses, strategy exits, and new entries.
 
-        Runs every monitor_interval_min minutes (default 1). Checks:
+        In Lambda, runs every MonitorIntervalMinutes (a stack parameter,
+        default 1); under the local runner, every monitor_interval_min. Checks:
         1. Trailing stop-losses on open positions (real-time quotes)
         2. Strategy-based exit signals on open positions (batched bars)
         3. New entry signals across the full watchlist (batched bars)
