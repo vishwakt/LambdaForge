@@ -108,15 +108,14 @@ def load_config(config_path: str | None = None) -> AppConfig:
 
     config.table_name = os.getenv("TRADES_TABLE", config.table_name)
 
-    # SSM Parameter Store overrides (highest priority, Lambda only)
-    try:
-        from src.ssm_config import apply_ssm_params, load_ssm_params
+    # SSM Parameter Store overrides (highest priority). Errors propagate: in
+    # Lambda an unreadable SSM raises (see load_ssm_params), and a setting
+    # that doesn't parse, such as max_positions=ten, raises everywhere.
+    from src.ssm_config import apply_ssm_params, load_ssm_params
 
-        ssm_params = load_ssm_params()
-        if ssm_params:
-            apply_ssm_params(config, ssm_params)
-    except Exception:
-        pass  # SSM unavailable — use env vars / config.json defaults
+    ssm_params = load_ssm_params()
+    if ssm_params:
+        apply_ssm_params(config, ssm_params)
 
     if config.trading_mode not in ("paper", "live"):
         raise ValueError(
