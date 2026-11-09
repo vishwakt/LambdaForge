@@ -193,6 +193,24 @@ the subscription email SNS sends, so its alerts reach you. One or two
 characters after `stock-bot-` match the IAM policies' name patterns, so no IAM
 or template change is needed.
 
+To retire a bot for good, run the reverse:
+
+```bash
+python scripts/retire_bot.py stock-bot-4
+```
+
+The first run removes the bot from `bots.json`. Commit and merge that, so no
+deploy recreates it, then run the script again after the close. It refuses
+while the bot's Alpaca account holds positions or open orders, so close them
+first; the script never trades. It lists what it will delete, and once you
+type the bot's name it deletes the stack, the bucket (emptied first), the
+table and its backups, the bot's settings and keys, and the bot's tag on the
+shared image. It keeps the log groups, with 180-day retention. Deleting data
+needs more than the deploy credentials allow: run it with a profile that
+also has `s3:DeleteObjectVersion`, `dynamodb:DeleteTable`,
+`dynamodb:ListBackups`, `dynamodb:DeleteBackup` and `ecr:BatchDeleteImage`.
+Stack 1 hosts the Telegram function for every bot, so it can't be retired.
+
 To start a bot's next paper experiment from zero, close its positions, then
 run **Actions → DynamoDB migration** with `mode=reset`, the bot, and its stack
 name as `confirm`. The table is backed up first, so nothing is lost.
@@ -242,6 +260,21 @@ All strategies implement a common interface — they receive historical OHLCV ba
 
 Want to add your own? See [CONTRIBUTING.md](CONTRIBUTING.md). A strategy is one class with one method; the starter template is about 50 lines, and the built-in strategies run 140 to 220 lines, most of it spelling out the reason behind each signal.
 
+### Strategy packs
+
+A strategy you'd rather not publish can live in a repo of your own as a **pack**: an installed package whose `lambdaforge.strategies` entry point names a `STRATEGIES` dict shaped like the built-in one. The engine merges every pack's strategies with the built-ins, so Telegram, the scheduler and the backtester treat them like any other strategy, and you switch them per bot the same way.
+
+```bash
+python -m tools.new_pack my_strategies   # writes packs/my_strategies/: pyproject, STRATEGIES, a test
+```
+
+- **Packs go in `packs/`.** The Dockerfile installs every folder there, and `packs/` is gitignored, so a pack's code stays in its own repo. With no packs, the image installs nothing new.
+- **Names are unique.** A pack can't reuse a built-in's name or another pack's: the image build fails instead. A lot is exited by the strategy that opened it, by name, so a pack can never take over another strategy's lots.
+- **A pack can't change the engine's libraries.** It can add its own, but the build pins every version already installed, so the built-ins give the same signals.
+- **Test a pack** after installing it, with the engine on the path: `pip install .`, then `PYTHONPATH=path/to/LambdaForge python -m pytest`. The scaffold's test checks that each strategy builds with no arguments, carries its own name and signals on daily bars.
+
+`sam build` installs whatever is in `packs/`. The GitHub deploy workflows don't check a pack out yet.
+
 ---
 
 ## ⚙️ Configuration
@@ -262,7 +295,7 @@ aws ssm put-parameter --name "/stock-bot-2/trailing_stop_pct" --value "0.03" --t
 | `max_daily_loss` | `0.02` | Daily loss limit — stops trading if hit |
 | `min_confidence` | `0.5` | Minimum signal confidence to trade |
 | `allow_pyramiding` | `false` | Buy more of a symbol already held, up to `max_concentration` |
-| `monitor_interval` | `1` | MonitorStops interval in minutes |
+| `monitor_interval` | `1` | MonitorStops interval in minutes for the local runner (`python -m src.main run-daily`) only. Deployed bots use the `MonitorIntervalMinutes` stack parameter, which takes a deploy to change |
 | `notify_frequency` | `hourly` | `realtime`, `hourly`, or `daily` |
 | `strategies` | `config.json` list | Comma-separated strategies to run; also set from Telegram |
 | `kill-switch` | `alive` | Set to `kill` to halt all trading immediately |

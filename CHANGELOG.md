@@ -9,7 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(nothing yet — changes after v0.2.0 land here)*
+- **Strategy packs** — a strategy can live outside this repo, in a package
+  of your own, and still run like a built-in: in Telegram's list, the
+  scheduler and the backtester. The Dockerfile installs every pack in the
+  gitignored `packs/` folder, the engine merges their strategies with the
+  built-ins, and the image build fails on a reused name.
+  `python -m tools.new_pack <name>` writes a pack's packaging and test
+  ([#98]).
+- **Retiring a bot is one command** — `python scripts/retire_bot.py
+  stock-bot-4` is the reverse of `new_bot.py`. Its first run removes the bot
+  from `bots.json`; after that merges, a second run deletes the bot's stack,
+  bucket, table and its backups, settings and keys, and its tag on the shared
+  image. It keeps the log groups, with 180-day retention. It refuses while
+  the market is open or the bot's Alpaca account holds positions or open
+  orders, never trades, never deletes the shared image repository, and asks
+  you to type the bot's name first ([#104]).
 
 ### Changed
 
@@ -37,6 +51,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content digest ... not found"), so #99's deploy failed before deploying
   anything. The deploy switches the runner back to Docker's classic image
   store first ([#102]).
+- **No entry scan past the daily loss limit** — once the limit tripped,
+  MonitorStops still fetched daily bars for the whole watchlist every minute,
+  and the risk manager then refused every BUY for the same reason. On
+  2026-11-05 that fetch slowed past 70 s, runs overlapped and three timed
+  out. The scan now asks the risk manager's own daily-loss check once, before
+  the bars, and skips with one log line. The first skipped run each day
+  still records one rejection row (`WATCHLIST [entry_scan]`) and sends one
+  alert, so the trip still shows in the alerts and digests. Stops and exits
+  run first, as before ([#103]).
+- **The docs no longer say SSM sets the deployed monitor interval** — README
+  and ARCHITECTURE listed the `monitor_interval` SSM parameter as
+  MonitorStops' interval, and ARCHITECTURE said every String parameter takes
+  effect on the next run. Only the local runner (`python -m src.main
+  run-daily`) reads it. In AWS, MonitorStops runs on an EventBridge rule whose
+  rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
+  deploy. The docs, SPEC.md and the code comments now say so; nothing runs
+  differently ([#107]).
 
 ---
 
@@ -356,10 +387,14 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#88]: https://github.com/vishwakt/LambdaForge/pull/88
 [#94]: https://github.com/vishwakt/LambdaForge/pull/94
 [#95]: https://github.com/vishwakt/LambdaForge/pull/95
+[#98]: https://github.com/vishwakt/LambdaForge/pull/98
+[#104]: https://github.com/vishwakt/LambdaForge/pull/104
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
+[#103]: https://github.com/vishwakt/LambdaForge/pull/103
+[#107]: https://github.com/vishwakt/LambdaForge/pull/107
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

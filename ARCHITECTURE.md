@@ -124,6 +124,24 @@ percent of the high-water mark, so it closes the position before the
 strategy's own rules can. Undeclared and unrecognised strategies keep the
 ratchet, so all seven built-ins are unaffected.
 
+### Strategy packs
+
+`STRATEGIES` in `src/strategies/__init__.py` is the built-ins merged with
+every installed strategy pack (`src/strategies/packs.py`). A pack is a
+package registered under the `lambdaforge.strategies` entry-point group,
+pointing at a `STRATEGIES` dict shaped like the built-in one: name to
+`Strategy` subclass, built with no arguments. The merge refuses a name
+that's already taken, by a built-in or by another pack, because a lot is
+exited by the strategy that opened it, by name. Everything that reads the
+registry sees pack strategies exactly like built-ins: Telegram's list
+(through `src/ops.py`), the scheduler and `tools/backtest.py`.
+
+The Dockerfile installs every pack in the gitignored `packs/` folder,
+constrained to the library versions already installed so a pack can't move
+the engine's, then imports the registry. A broken pack or a reused name
+fails the image build, not a run. `python -m tools.new_pack <name>` writes a
+new pack's packaging and test.
+
 ---
 
 ## Risk Management
@@ -171,7 +189,7 @@ Dataclass defaults  (src/config.py)
 | `max_concentration` | String | `0.15` | Max portfolio fraction per symbol |
 | `max_daily_loss` | String | `0.02` | Daily loss limit as fraction |
 | `min_confidence` | String | `0.5` | Minimum signal confidence to trade |
-| `monitor_interval` | String | `1` | MonitorStops interval in minutes |
+| `monitor_interval` | String | `1` | Local runner only: MonitorStops interval in minutes (see below) |
 | `notify_frequency` | String | `hourly` | `realtime`, `hourly`, or `daily` |
 | `strategies` | String | (config.json list) | Comma-separated strategy names to run |
 | `kill-switch` | String | `alive` | `alive` or `kill` |
@@ -183,6 +201,13 @@ next scheduled run — within a minute for `MonitorStops`. No redeploy, no
 restart. `SecureString` credentials are the exception: they are decrypted once
 per container and cached, which is what keeps KMS usage (and cost) flat. A
 credential rotation therefore lands on the next cold start.
+
+The deployed `MonitorStops` interval is not an SSM parameter. `MonitorStops`
+runs on an EventBridge rule whose rate is the `MonitorIntervalMinutes` stack
+parameter in `template.yaml` (default 1), so changing it takes a deploy. The
+CI deploy doesn't override it, so every bot runs every minute. The SSM
+`monitor_interval` parameter only sets the interval of the local runner
+(`python -m src.main run-daily`).
 
 Parameters can be edited in the AWS Console, via `aws ssm put-parameter`, or —
 for `strategies` and `kill-switch` — from the Telegram bot.
@@ -345,14 +370,6 @@ deploy, the image its functions run is tagged with the bot's name, and the
 repository's lifecycle policy never expires a tagged image: Lambda fails every
 call to a function whose image is deleted.
 
-```mermaid
-flowchart LR
-    push["Push to main<br/>docs-only pushes skipped"] --> build["Build job<br/>once per push"]
-    build -->|"build arm64 image"| ecr[("ECR repository<br/>stock-trading-bot-images,<br/>shared by every bot")]
-    build -->|"packaged template"| wf["Deploy jobs<br/>one per bot in bots.json"]
-    wf -->|"sam deploy"| stack["The bot's CloudFormation stack"]
-    ecr -->|"same image for every bot"| fns["The bot's Lambda functions"]
-    stack --> fns
-    wf -.->|"first deploy only"| init["init: start the empty table"]
-    wf -->|"tag the running image<br/>with the bot's name"| ecr
-```
+![Deployment pipeline: on each push to main, one build job pushes the arm64 image to the shared ECR repository, then one deploy job per bot runs sam deploy on the bot's stack, whose functions all run that same image, and tags the image with the bot's name](docs/diagrams/deploy.svg)
+
+The source is [`docs/diagrams/deploy.mmd`](docs/diagrams/deploy.mmd); see [docs/diagrams](docs/diagrams/README.md) to change it.

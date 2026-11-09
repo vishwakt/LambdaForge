@@ -9,6 +9,7 @@ where GitHub renders them.
 | Diagram | Shown in |
 |---|---|
 | [`system.mmd`](system.mmd) | README (Architecture) and ARCHITECTURE.md (System Architecture) |
+| [`deploy.mmd`](deploy.mmd) | ARCHITECTURE.md (Deployment) |
 
 ## Changing a diagram
 
