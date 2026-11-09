@@ -64,7 +64,7 @@ class RiskManager:
             )
 
         # Check 2: Daily loss limit
-        if self._daily_loss_exceeded(account_info):
+        if self.daily_loss_exceeded(account_info):
             reasons.append(
                 f"Daily loss limit exceeded: down more than "
                 f"{self.config.daily_loss_limit_pct:.1%} today"
@@ -150,7 +150,7 @@ class RiskManager:
             position_size_dollars=position_size,
         )
 
-    def _daily_loss_exceeded(self, account_info: dict) -> bool:
+    def daily_loss_exceeded(self, account_info: dict) -> bool:
         """Check if today's P&L has breached the daily loss limit."""
         prev_snapshot = self.trade_log.get_previous_snapshot()
         if prev_snapshot is None:

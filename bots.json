@@ -1,8 +1,9 @@
 {
   "_instructions": [
     "Every bot this repo deploys. A bot's name gives every other name:",
-    "stock-bot-3 → SSM prefix /stock-bot-3/, stack and ECR repo",
-    "stock-trading-bot-3, bucket stock-trader-db-3-<account>, table stock-trader-3.",
+    "stock-bot-3 → SSM prefix /stock-bot-3/, stack stock-trading-bot-3,",
+    "bucket stock-trader-db-3-<account>, table stock-trader-3. Every bot runs one",
+    "image from the shared ECR repo stock-trading-bot-images.",
     "environment: paper (stack 1 only: it hosts the Telegram ops function and",
     "runs no trading functions) or experimental. Every bot deploys on each push to main.",
     "To add a bot, run python scripts/new_bot.py stock-bot-<id> (see README)."

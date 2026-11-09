@@ -1,0 +1,25 @@
+%% Deployment pipeline. Render with: python docs/diagrams/render.py deploy
+flowchart TB
+    push(["Push to main<br/>docs-only pushes skipped"])
+
+    subgraph gha["GitHub Actions"]
+        build(["Build job, once per push<br/>sam build, sam package"])
+        deploy(["Deploy jobs<br/>one per bot in bots.json"])
+    end
+
+    ecr@{ icon: "aws:ecr", label: "ECR: stock-trading-bot-images<br/>one image for every bot; tagged<br/>images never expire, 3 newest kept", pos: "b", h: 56 }
+
+    subgraph bot["Each bot"]
+        stack@{ icon: "aws:cloudformation", label: "The bot's stack", pos: "b", h: 56 }
+        fns@{ icon: "aws:lambda", label: "The bot's functions", pos: "b", h: 56 }
+        table@{ icon: "aws:dynamodb", label: "The bot's table", pos: "b", h: 56 }
+    end
+
+    push --> build
+    build -->|"push the arm64 image"| ecr
+    build -->|"packaged template"| deploy
+    deploy -->|"sam deploy"| stack
+    stack -->|"create or update"| fns
+    ecr -->|"the same image digest"| fns
+    deploy -.->|"first deploy only:<br/>init the empty table"| table
+    deploy -->|"tag the running image<br/>with the bot's name"| ecr

@@ -40,6 +40,9 @@ _PARAM_MAP = {
     "max_daily_loss": ("risk", "daily_loss_limit_pct", float),
     "min_confidence": ("risk", "min_confidence", float),
     "allow_pyramiding": ("risk", "allow_pyramiding", _flag),
+    # Only the local runner (run_scheduler) reads this. In Lambda, MonitorStops
+    # runs on an EventBridge rule whose rate is the MonitorIntervalMinutes
+    # stack parameter, set at deploy time, so this has no effect there.
     "monitor_interval": ("scheduler", "monitor_interval_min", int),
     "notify_frequency": ("app", "notify_frequency", str),
     # Per-stack strategy selection, e.g. "rsi_macd,ema_crossover" — lets the
@@ -116,7 +119,7 @@ def _refresh_plain_params(prefix: str) -> None:
     Skips SecureStrings, so the Alpaca credentials keep the values decrypted
     at cold start and a warm container pays no KMS decrypt per invocation
     (the reason the cache exists). Everything else — strategies, risk
-    limits, monitor interval — is re-read every time, which is what makes
+    limits — is re-read every time, which is what makes
     "change a parameter, no redeploy" actually true for a warm Lambda.
 
     Fails silently: a config refresh must never break a trading run.
