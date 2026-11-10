@@ -20,6 +20,7 @@ flowchart TB
     build -->|"packaged template"| deploy
     deploy -->|"sam deploy"| stack
     stack -->|"create or update"| fns
+    stack -->|"create"| table
     ecr -->|"the same image digest"| fns
     deploy -.->|"first deploy only:<br/>init the empty table"| table
     deploy -->|"tag the running image<br/>with the bot's name"| ecr

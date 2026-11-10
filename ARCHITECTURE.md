@@ -112,8 +112,9 @@ A `Signal` carries:
 | **EMA Crossover + ADX** | `ema_crossover.py` | Dual EMA crossover filtered by ADX trend strength |
 | **RSI + MACD Confluence** | `rsi_macd_confluence.py` | RSI oversold + MACD bullish cross combo signal |
 | **Relative Strength vs SPY** | `relative_strength.py` | Buys stocks outperforming SPY on a rolling basis |
+| **Pullback in Uptrend** | `pullback_uptrend.py` | Buys a close above the 50-day SMA with RSI(2) < 10, on completed daily bars; sells on RSI(2) > 60 or a close below the SMA |
 
-All strategies set `stop_loss` and `take_profit` on BUY signals — fixed 3–5% / 6–10% for the momentum strategies, band- and σ-based levels for Bollinger and Z-Score. Trailing stops are managed centrally by the scheduler (hybrid: the tighter of 5% below the high-water mark or 2×ATR, never lowered), not individual strategies.
+The first seven strategies set `stop_loss` and `take_profit` on BUY signals — fixed 3–5% / 6–10% for the momentum strategies, band- and σ-based levels for Bollinger and Z-Score. Trailing stops are managed centrally by the scheduler (hybrid: the tighter of 5% below the high-water mark or 2×ATR, never lowered), not individual strategies. Pullback in Uptrend owns its exits: it sets a 20% disaster stop and no take-profit, and opts out of the trailing stop with `uses_trailing_stop = False`.
 
 A strategy whose exit rules are fully specified can opt out of the ratchet by
 declaring `uses_trailing_stop = False`. The engine then leaves its
