@@ -60,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still records one rejection row (`WATCHLIST [entry_scan]`) and sends one
   alert, so the trip still shows in the alerts and digests. Stops and exits
   run first, as before ([#103]).
+- **The docs count 7 functions and 8 strategies** — README's cost table
+  said each bot runs 6 Lambda functions; MigrateFunction makes 7. README and
+  ARCHITECTURE listed 7 strategies and left out Pullback in Uptrend, and
+  ARCHITECTURE said every strategy sets a take-profit and uses the trailing
+  stop, which Pullback in Uptrend doesn't. The deploy diagram now shows the
+  stack creating the bot's table ([#109]).
 - **The docs no longer say SSM sets the deployed monitor interval** — README
   and ARCHITECTURE listed the `monitor_interval` SSM parameter as
   MonitorStops' interval, and ARCHITECTURE said every String parameter takes
@@ -68,12 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
   deploy. The docs, SPEC.md and the code comments now say so; nothing runs
   differently ([#107]).
-- **The docs count 7 functions and 8 strategies** — README's cost table
-  said each bot runs 6 Lambda functions; MigrateFunction makes 7. README and
-  ARCHITECTURE listed 7 strategies and left out Pullback in Uptrend, and
-  ARCHITECTURE said every strategy sets a take-profit and uses the trailing
-  stop, which Pullback in Uptrend doesn't. The deploy diagram now shows the
-  stack creating the bot's table ([#109]).
 
 ---
 
@@ -395,13 +395,13 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#95]: https://github.com/vishwakt/LambdaForge/pull/95
 [#98]: https://github.com/vishwakt/LambdaForge/pull/98
 [#104]: https://github.com/vishwakt/LambdaForge/pull/104
+[#109]: https://github.com/vishwakt/LambdaForge/pull/109
 [#83]: https://github.com/vishwakt/LambdaForge/issues/83
 [#99]: https://github.com/vishwakt/LambdaForge/pull/99
 [#102]: https://github.com/vishwakt/LambdaForge/pull/102
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
 [#103]: https://github.com/vishwakt/LambdaForge/pull/103
 [#107]: https://github.com/vishwakt/LambdaForge/pull/107
-[#109]: https://github.com/vishwakt/LambdaForge/pull/109
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
