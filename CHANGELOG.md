@@ -68,6 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
   deploy. The docs, SPEC.md and the code comments now say so; nothing runs
   differently ([#107]).
+- **The docs count 7 functions and 8 strategies** — README's cost table
+  said each bot runs 6 Lambda functions; MigrateFunction makes 7. README and
+  ARCHITECTURE listed 7 strategies and left out Pullback in Uptrend, and
+  ARCHITECTURE said every strategy sets a take-profit and uses the trailing
+  stop, which Pullback in Uptrend doesn't. The deploy diagram now shows the
+  stack creating the bot's table ([#109]).
 
 ---
 
@@ -395,6 +401,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
 [#103]: https://github.com/vishwakt/LambdaForge/pull/103
 [#107]: https://github.com/vishwakt/LambdaForge/pull/107
+[#109]: https://github.com/vishwakt/LambdaForge/pull/109
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---
