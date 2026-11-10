@@ -68,6 +68,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate is the `MonitorIntervalMinutes` stack parameter, so changing it takes a
   deploy. The docs, SPEC.md and the code comments now say so; nothing runs
   differently ([#107]).
+- **SSM errors are no longer swallowed** — a setting that doesn't parse,
+  such as `max_daily_loss=5%`, was swallowed along with every setting after
+  it in the loop, so a bot whose keys were already loaded could trade with
+  the rest of its settings, risk limits included, at `config.json`
+  defaults. It now fails the run. A cold start
+  that couldn't read SSM at all was logged only at DEBUG and failed later, at
+  the broker, for want of the keys; in Lambda it now fails at the read with
+  an error naming SSM. Either way the failed run emails the alerts topic once
+  Lambda's retries are spent. Local runs still fall back to `config.json`
+  when SSM is out of reach. A failed warm refresh still keeps the last good
+  values, now with a warning ([#108]).
 
 ---
 
@@ -395,6 +406,7 @@ Upgrading a fork from 0.1? DynamoDB is now the only trade store, so read
 [#100]: https://github.com/vishwakt/LambdaForge/pull/100
 [#103]: https://github.com/vishwakt/LambdaForge/pull/103
 [#107]: https://github.com/vishwakt/LambdaForge/pull/107
+[#108]: https://github.com/vishwakt/LambdaForge/pull/108
 [#58]: https://github.com/vishwakt/LambdaForge/pull/58
 
 ---

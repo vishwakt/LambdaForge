@@ -1,5 +1,6 @@
 """Tests for SSM parameter caching to reduce KMS calls."""
 
+import logging
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -232,6 +233,57 @@ class TestLiveRefresh:
 
         first, second = self._load_twice(mock_boto3, _explode)
         assert first == second == {"max_positions": "10"}
+
+    def test_refresh_failure_in_lambda_warns_and_keeps_values(
+        self, monkeypatch, caplog
+    ):
+        """Unlike a cold-start read, a failed refresh never fails the run."""
+        monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "stock-trading-bot-2-Monitor")
+        mock_boto3, mock_ssm = _make_mock_boto3({"max_positions": "10"})
+
+        def _explode():
+            mock_ssm.get_paginator.return_value.paginate.side_effect = RuntimeError(
+                "throttled"
+            )
+
+        with caplog.at_level(logging.WARNING, logger="stock-trader"):
+            first, second = self._load_twice(mock_boto3, _explode)
+
+        assert first == second == {"max_positions": "10"}
+        assert any(
+            r.levelno == logging.WARNING and "throttled" in r.getMessage()
+            for r in caplog.records
+        )
+
+
+class TestLoadFailure:
+    """A Lambda run must fail, not trade on defaults, when SSM can't be read."""
+
+    def _load_failing(self):
+        mock_boto3, mock_ssm = _make_mock_boto3({})
+        mock_ssm.get_paginator.return_value.paginate.side_effect = RuntimeError(
+            "AccessDenied"
+        )
+        with (
+            patch.dict(sys.modules, {"boto3": mock_boto3}),
+            patch.dict("os.environ", {"SSM_PREFIX": "/stock-bot/"}),
+        ):
+            return ssm_config.load_ssm_params()
+
+    def test_raises_in_lambda(self, monkeypatch, caplog):
+        monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "stock-trading-bot-2-Monitor")
+
+        with pytest.raises(RuntimeError, match="AccessDenied"):
+            self._load_failing()
+
+        assert "Could not read settings from SSM" in caplog.text
+        assert not ssm_config._cache_loaded
+
+    def test_returns_empty_outside_lambda(self, monkeypatch):
+        """Local runs keep falling back to config.json defaults."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+
+        assert self._load_failing() == {}
 
 
 class TestApplySsmParams:

@@ -3,6 +3,7 @@
 Parameters live under /stock-bot/ prefix and can be changed at any time
 via the AWS Console — no redeployment needed.  Local CLI usage (where SSM
 is unavailable) gracefully returns an empty dict so config.json defaults apply.
+In Lambda, a failed read raises instead: a bot must never trade on defaults.
 """
 
 from __future__ import annotations
@@ -56,6 +57,11 @@ def get_ssm_prefix() -> str:
     return os.getenv("SSM_PREFIX", "/stock-bot/")
 
 
+def _in_lambda() -> bool:
+    """True inside AWS Lambda, which sets AWS_LAMBDA_FUNCTION_NAME."""
+    return bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
+
 def load_ssm_params(prefix: str | None = None) -> dict:
     """Fetch all parameters under *prefix* from SSM Parameter Store.
 
@@ -66,7 +72,10 @@ def load_ssm_params(prefix: str | None = None) -> dict:
     the SSM (and KMS decrypt) round-trip. The kill switch is NOT affected
     — it reads SSM directly via ``_check_kill_switch()`` in lambda_handlers.
 
-    Returns ``{}`` when SSM is unreachable (local dev, missing creds, etc.).
+    Outside Lambda, returns ``{}`` when SSM is unreachable (local dev,
+    missing creds, etc.). In Lambda, a failed read logs an error and raises,
+    so the run fails instead of trading on config.json defaults; once
+    Lambda's retries are spent, the failed run emails the alerts topic.
     """
     global _ssm_cache, _cache_loaded
 
@@ -82,7 +91,6 @@ def load_ssm_params(prefix: str | None = None) -> dict:
 
     try:
         import boto3
-        from botocore.exceptions import ClientError, NoCredentialsError
     except ImportError:
         return {}
 
@@ -108,7 +116,10 @@ def load_ssm_params(prefix: str | None = None) -> dict:
 
         return params
 
-    except (ClientError, NoCredentialsError, Exception) as e:
+    except Exception as e:
+        if _in_lambda():
+            logger.error("Could not read settings from SSM (%s): %s", prefix, e)
+            raise
         logger.debug("SSM unavailable, using defaults: %s", e)
         return {}
 
@@ -122,7 +133,8 @@ def _refresh_plain_params(prefix: str) -> None:
     limits — is re-read every time, which is what makes
     "change a parameter, no redeploy" actually true for a warm Lambda.
 
-    Fails silently: a config refresh must never break a trading run.
+    Never raises: a config refresh must never break a trading run. A failed
+    refresh logs a warning and keeps the values from the last good read.
     """
     try:
         import boto3
@@ -142,7 +154,7 @@ def _refresh_plain_params(prefix: str) -> None:
         if fresh:
             _ssm_cache.update(fresh)
     except Exception as e:
-        logger.debug("Live SSM refresh failed, keeping cached values: %s", e)
+        logger.warning("Live SSM refresh failed, keeping cached values: %s", e)
 
 
 def clear_ssm_cache() -> None:

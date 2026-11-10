@@ -1,6 +1,30 @@
 """Tests for configuration defaults and loading."""
 
+import pytest
+
 from src.config import AppConfig, load_config
+
+
+class TestLoadConfigSsmErrors:
+    """load_config must not hide SSM trouble behind config.json defaults."""
+
+    def test_ssm_read_error_propagates(self, monkeypatch):
+        def _fail():
+            raise RuntimeError("AccessDenied")
+
+        monkeypatch.setattr("src.ssm_config.load_ssm_params", _fail)
+
+        with pytest.raises(RuntimeError, match="AccessDenied"):
+            load_config()
+
+    def test_unparseable_setting_raises(self, monkeypatch):
+        """Before, this was swallowed and every later setting was skipped."""
+        monkeypatch.setattr(
+            "src.ssm_config.load_ssm_params", lambda: {"max_positions": "ten"}
+        )
+
+        with pytest.raises(ValueError, match="ten"):
+            load_config()
 
 
 class TestConfigDefaults:
