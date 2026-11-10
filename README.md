@@ -70,7 +70,7 @@ One of LambdaForge's biggest advantages: **it costs almost nothing to run**. Com
 
 | AWS Service | What LambdaForge uses (per stack) | Why it's cheap | Monthly |
 |-------------|-----------------------------------|----------------|---------|
-| **Lambda** | 6 arm64 functions, ~45K invocations/month at the default 1-minute interval | Always-free 1M requests + 400K GB-s | **$0** |
+| **Lambda** | 7 arm64 functions, ~45K invocations/month at the default 1-minute interval | Always-free 1M requests + 400K GB-s | **$0** |
 | **EventBridge** | 5 scheduled rules: 4 New York-time crons + 1 rate rule | Free at this volume | **$0** |
 | **SSM Parameter Store + KMS** | 13 Standard parameters; the Alpaca keys are SecureStrings on the AWS-managed key, decrypted once per container and then cached | Standard parameters are free; a few thousand decrypts a month against KMS's 20K free requests | **$0** |
 | **SNS + SES** | Alerts plus hourly, daily and weekly digest emails, a few hundred a month | Free at this volume | **$0** |
@@ -92,7 +92,7 @@ Compare this to a VPS or dedicated server which would run $5–$50/month for equ
 
 | Feature | Details |
 |---------|---------|
-| 🧠 **7 trading strategies** (3 enabled by default) | MACD, Bollinger Squeeze, Z-Score Mean Reversion (enabled); RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY (available via `config.json`) |
+| 🧠 **8 trading strategies** (3 enabled by default) | MACD, Bollinger Squeeze, Z-Score Mean Reversion (enabled); RSI Confluence, EMA Crossover + ADX, RSI + MACD Confluence, Relative Strength vs SPY, Pullback in Uptrend (available via `config.json`) |
 | 🛡️ **Risk manager** | Confidence gate, daily loss limit, max positions (counting buys that haven't filled yet), concentration cap, stop-loss enforcement, position sizing from cash only (no margin), and no re-buying a symbol sold earlier the same day |
 | 📈 **Trailing stop-loss** | Hybrid trailing stop — the tighter of 5% below the high-water mark or 2×ATR — re-evaluated every minute during market hours against the last trade price, never moves down. A stop fires when two consecutive runs agree, or at once if the price is more than 5% through it. Exits sell what the broker holds and never go short. |
 | 🔴 **Kill switch** | One command liquidates everything and halts trading instantly |
@@ -253,6 +253,7 @@ All strategies implement a common interface — they receive historical OHLCV ba
 | **EMA Crossover + ADX** | 9/21 EMA cross + ADX > 25 | 3% below entry | 6% above | Strong trends |
 | **RSI + MACD Confluence** | RSI oversold + MACD bullish cross | 4% below entry | 8% above | Reversal signals |
 | **Relative Strength vs SPY** | Outperforming SPY on rolling basis | 5% below entry | 10% above | Sector leaders |
+| **Pullback in Uptrend** | Close above the 50-day SMA + RSI(2) < 10, on completed daily bars | 20% below entry (a disaster stop; no trailing stop) | None; SELL on RSI(2) > 60 or a close below the SMA | Index and sector ETFs |
 
 > **Trailing stops** are managed centrally — once a position is open, the stop price ratchets up automatically as price rises. A strategy that owns its exit rules can opt out with `uses_trailing_stop = False`; its own `stop_loss` is still enforced as a hard floor.
 >
